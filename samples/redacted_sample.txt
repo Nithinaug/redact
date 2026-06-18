@@ -1,0 +1,19 @@
+CONFIDENTIAL - CUSTOMER ONBOARDING FORM
+
+Full Name: <PERSON> of Birth: <DATE_TIME>
+Email: <EMAIL_ADDRESS>
+Mobile: <SG_PHONE_NUMBER>
+NRIC: <SG_NRIC_FIN>
+Passport No: <PASSPORT>
+Bank: DBS
+Account Number: <UK_NHS>
+Company UEN: <DRIVER_LICENSE>
+Home Address: 10 <LOCATION>, Singapore <DRIVER_LICENSE>
+
+Next of Kin: <PERSON>
+Relationship: Spouse
+Contact: <SG_PHONE_NUMBER>
+Email: <EMAIL_ADDRESS>
+
+Notes: Customer requested account statements be emailed <DATE_TIME>.
+Credit card on file: <CREDIT_CARD>

@@ -1,0 +1,20 @@
+CONFIDENTIAL - CUSTOMER ONBOARDING FORM
+
+Full Name: John Smith
+Date of Birth: 14/03/1985
+Email: john.smith@example.com
+Mobile: 91234567
+NRIC: S1234567A
+Passport No: K1234567
+Bank: DBS
+Account Number: 0123456789
+Company UEN: 201912345A
+Home Address: 10 Marina Boulevard, Singapore 018983
+
+Next of Kin: Jane Doe
+Relationship: Spouse
+Contact: 98765432
+Email: jane.doe@example.com
+
+Notes: Customer requested account statements be emailed monthly.
+Credit card on file: 4111 1111 1111 1111
