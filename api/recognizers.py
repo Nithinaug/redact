@@ -7,11 +7,6 @@ def build_custom_recognizers():
     recognizers.append(SgFinRecognizer())
     recognizers.append(SgUenRecognizer())
     recognizers.append(PatternRecognizer(
-        supported_entity="SG_PHONE_NUMBER",
-        patterns=[Pattern(name="sg_phone", regex=r"\b[89]\d{7}\b", score=0.5)],
-        context=["phone", "mobile", "contact", "call", "tel", "hp"],
-    ))
-    recognizers.append(PatternRecognizer(
         supported_entity="PASSPORT",
         patterns=[
             Pattern(name="passport_alpha_numeric", regex=r"\b[A-Z]{1,2}[0-9]{6,9}\b", score=0.4),
@@ -22,8 +17,7 @@ def build_custom_recognizers():
     recognizers.append(PatternRecognizer(
         supported_entity="BANK_ACCOUNT",
         patterns=[Pattern(name="bank_account_generic", regex=r"\b\d{8,12}\b", score=0.3)],
-        context=["account number", "bank account", "account no", "acct", "savings", "current account",
-                 "DBS", "OCBC", "UOB", "POSB", "Citibank", "HSBC", "Standard Chartered"],
+        context=["account number", "bank account", "account no", "acct", "savings", "current account"],
     ))
     recognizers.append(PatternRecognizer(
         supported_entity="DRIVER_LICENSE",

@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from .engine import analyze_text, anonymize_text, supported_entities
+from .presidio import analyze_text, anonymize_text, supported_entities
 from .extract import extract_text
 from .redact import build_redaction_pairs, redact_file
 

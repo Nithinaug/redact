@@ -20,8 +20,7 @@ def get_anonymizer() -> AnonymizerEngine:
 
 
 def analyze_text(text: str, language: str = "en"):
-    results = get_analyzer().analyze(text=text, language=language)
-    return results
+    return get_analyzer().analyze(text=text, language=language)
 
 
 def anonymize_text(text: str, analyzer_results):
