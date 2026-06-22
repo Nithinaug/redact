@@ -35,11 +35,8 @@ def _extract_csv(data: bytes) -> str:
 
 
 def _extract_pdf(data: bytes) -> str:
-    parts = []
-    with fitz.open(stream=data, filetype="pdf") as doc:
-        for page in doc:
-            parts.append(page.get_text())
-    text = "\n".join(parts)
+    pages = extract_pages(data, ".pdf")
+    text = "\n".join(pages)
     if not text.strip():
         raise ValueError("no text layer found - this PDF may be scanned (OCR not supported yet)")
     return text
@@ -52,6 +49,28 @@ def _extract_docx(data: bytes) -> str:
         for row in table.rows:
             lines.append(" ".join(cell.text for cell in row.cells))
     return "\n".join(lines)
+
+
+def extract_pages(data: bytes, ext: str) -> list:
+    if ext == ".pdf":
+        pages = []
+        with fitz.open(stream=data, filetype="pdf") as doc:
+            for page in doc:
+                pages.append(page.get_text())
+        return pages
+    return [extract_text_from_ext(ext, data)]
+
+
+def extract_text_from_ext(ext: str, data: bytes) -> str:
+    if ext in (".txt", ".json"):
+        return data.decode("utf-8", errors="replace")
+    if ext == ".csv":
+        return _extract_csv(data)
+    if ext == ".docx":
+        return _extract_docx(data)
+    if ext == ".xlsx":
+        return _extract_xlsx(data)
+    raise ValueError(f"unsupported file type: {ext}")
 
 
 def _extract_xlsx(data: bytes) -> str:

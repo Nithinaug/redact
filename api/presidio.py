@@ -1,3 +1,4 @@
+from concurrent.futures import ThreadPoolExecutor
 from functools import lru_cache
 from typing import List
 
@@ -9,6 +10,7 @@ from presidio_anonymizer import AnonymizerEngine
 from .recognizers import build_custom_recognizers
 
 MIN_SCORE = 0.5
+MAX_WORKERS = 4
 
 
 @lru_cache(maxsize=1)
@@ -50,11 +52,36 @@ def _dedupe_results(results: List[RecognizerResult]) -> List[RecognizerResult]:
     return deduped
 
 
-def analyze_text(text: str, language: str = "en", allow_list: List[str] = None) -> List[RecognizerResult]:
-    results = get_analyzer().analyze(text=text, language=language, allow_list=allow_list or [], return_decision_process=True)
+def analyze_text(text: str, language: str = "en") -> List[RecognizerResult]:
+    results = get_analyzer().analyze(text=text, language=language, return_decision_process=True)
     filtered = [r for r in results if r.score >= MIN_SCORE]
     return _dedupe_results(filtered)
 
+
+def _analyze_page(args) -> List[RecognizerResult]:
+    page_text, offset, language = args
+    if not page_text.strip():
+        return []
+    results = get_analyzer().analyze(text=page_text, language=language, return_decision_process=True)
+    return [RecognizerResult(r.entity_type, r.start + offset, r.end + offset, r.score)
+            for r in results if r.score >= MIN_SCORE]
+
+
+def analyze_pages(pages: List[str], language: str = "en") -> List[RecognizerResult]:
+    offsets = []
+    offset = 0
+    for page in pages:
+        offsets.append(offset)
+        offset += len(page) + 1  # +1 for the \n joining pages
+
+    args = [(page, off, language) for page, off in zip(pages, offsets)]
+
+    all_results = []
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
+        for page_results in pool.map(_analyze_page, args):
+            all_results.extend(page_results)
+
+    return _dedupe_results(all_results)
 
 
 def anonymize_text(text: str, analyzer_results):

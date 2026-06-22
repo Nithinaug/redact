@@ -5,8 +5,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from .presidio import analyze_text, anonymize_text, supported_entities
-from .extract import extract_text
+from .presidio import analyze_text, analyze_pages, anonymize_text, supported_entities
+from .extract import extract_text, extract_pages, extension_of
 from .redact import build_redaction_pairs, redact_file
 
 MAX_UPLOAD_BYTES = 50 * 1024 * 1024
@@ -54,11 +54,13 @@ def analyze(req: TextRequest):
 @app.post("/analyze-file")
 async def analyze_file(file: UploadFile = File(...)):
     data = await _read_upload(file)
+    ext = extension_of(file.filename)
     try:
-        text = extract_text(file.filename, data)
+        pages = extract_pages(data, ext)
     except ValueError as e:
         raise HTTPException(400, str(e))
-    results = analyze_text(text)
+    text = "\n".join(pages)
+    results = analyze_pages(pages) if len(pages) > 1 else analyze_text(text)
     return {"text": text, "results": _to_dicts(results)}
 
 
@@ -73,11 +75,13 @@ def anonymize(req: TextRequest):
 @app.post("/redact-file")
 async def redact_file_endpoint(file: UploadFile = File(...)):
     data = await _read_upload(file)
+    ext = extension_of(file.filename)
     try:
-        text = extract_text(file.filename, data)
+        pages = extract_pages(data, ext)
     except ValueError as e:
         raise HTTPException(400, str(e))
-    results = analyze_text(text)
+    text = "\n".join(pages)
+    results = analyze_pages(pages) if len(pages) > 1 else analyze_text(text)
     try:
         out, media_type = redact_file(file.filename, data, build_redaction_pairs(text, results))
     except ValueError as e:
