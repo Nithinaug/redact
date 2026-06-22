@@ -14,13 +14,7 @@ from .redact import build_redaction_pairs, redact_file
 MAX_UPLOAD_BYTES = 50 * 1024 * 1024
 
 app = FastAPI(title="Redactor API")
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
-    allow_methods=["GET", "POST", "OPTIONS"],
-    allow_headers=["Content-Type"],
-)
+app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:5173"], allow_methods=["GET", "POST", "OPTIONS"], allow_headers=["Content-Type"])
 
 
 class TextRequest(BaseModel):
@@ -29,39 +23,37 @@ class TextRequest(BaseModel):
     custom_terms: Optional[List[str]] = []
 
 
-def _results_to_dicts(results, text: str = ""):
+def _to_dicts(results):
     out = []
     for r in results:
-        recognizer = "Custom Term"
-        if r.entity_type != "CUSTOM_TERM" and r.recognition_metadata:
-            recognizer = r.recognition_metadata.get("recognizer_name", "Unknown")
-        out.append({
-            "entity_type": r.entity_type,
-            "start": r.start,
-            "end": r.end,
-            "score": round(r.score, 2),
-            "recognizer": recognizer,
-        })
+        recognizer = "Custom Term" if r.entity_type == "CUSTOM_TERM" else (r.recognition_metadata or {}).get("recognizer_name", "Unknown")
+        out.append({"entity_type": r.entity_type, "start": r.start, "end": r.end, "score": round(r.score, 2), "recognizer": recognizer})
     return out
 
 
 async def _read_upload(file: UploadFile) -> bytes:
     data = await file.read()
     if len(data) > MAX_UPLOAD_BYTES:
-        raise HTTPException(status_code=400, detail=f"file too large (max {MAX_UPLOAD_BYTES // (1024*1024)} MB)")
+        raise HTTPException(400, f"file too large (max {MAX_UPLOAD_BYTES // (1024*1024)} MB)")
     return data
 
 
-def _parse_json_field(raw: Optional[str], field_name: str) -> List[str]:
+def _parse_list(raw: Optional[str], name: str) -> List[str]:
     if not raw:
         return []
     try:
-        value = json.loads(raw)
-        if not isinstance(value, list):
+        v = json.loads(raw)
+        if not isinstance(v, list):
             raise ValueError
-        return [str(v) for v in value]
+        return [str(x) for x in v]
     except (ValueError, TypeError):
-        raise HTTPException(status_code=400, detail=f"{field_name} must be a JSON array of strings")
+        raise HTTPException(400, f"{name} must be a JSON array")
+
+
+def _run_analysis(text: str, al: List[str], ct: List[str]):
+    results = analyze_text(text, allow_list=al)
+    results += find_custom_terms(text, ct)
+    return results
 
 
 @app.get("/health")
@@ -77,63 +69,40 @@ def entities(language: str = "en"):
 @app.post("/analyze")
 def analyze(req: TextRequest):
     if not req.text.strip():
-        raise HTTPException(status_code=400, detail="text is empty")
-    results = analyze_text(req.text, allow_list=req.allow_list)
-    results += find_custom_terms(req.text, req.custom_terms)
-    return {"text": req.text, "results": _results_to_dicts(results, req.text)}
+        raise HTTPException(400, "text is empty")
+    results = _run_analysis(req.text, req.allow_list, req.custom_terms)
+    return {"text": req.text, "results": _to_dicts(results)}
 
 
 @app.post("/analyze-file")
-async def analyze_file(
-    file: UploadFile = File(...),
-    allow_list: Optional[str] = Form(None),
-    custom_terms: Optional[str] = Form(None),
-):
+async def analyze_file(file: UploadFile = File(...), allow_list: Optional[str] = Form(None), custom_terms: Optional[str] = Form(None)):
     data = await _read_upload(file)
     try:
         text = extract_text(file.filename, data)
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    al = _parse_json_field(allow_list, "allow_list")
-    ct = _parse_json_field(custom_terms, "custom_terms")
-    results = analyze_text(text, allow_list=al)
-    results += find_custom_terms(text, ct)
-    return {"text": text, "results": _results_to_dicts(results, text)}
+        raise HTTPException(400, str(e))
+    results = _run_analysis(text, _parse_list(allow_list, "allow_list"), _parse_list(custom_terms, "custom_terms"))
+    return {"text": text, "results": _to_dicts(results)}
 
 
 @app.post("/anonymize")
 def anonymize(req: TextRequest):
     if not req.text.strip():
-        raise HTTPException(status_code=400, detail="text is empty")
-    results = analyze_text(req.text, allow_list=req.allow_list)
-    results += find_custom_terms(req.text, req.custom_terms)
-    out = anonymize_text(req.text, results)
-    return {"text": out.text, "results": _results_to_dicts(results, req.text)}
+        raise HTTPException(400, "text is empty")
+    results = _run_analysis(req.text, req.allow_list, req.custom_terms)
+    return {"text": anonymize_text(req.text, results).text, "results": _to_dicts(results)}
 
 
 @app.post("/redact-file")
-async def redact_file_endpoint(
-    file: UploadFile = File(...),
-    allow_list: Optional[str] = Form(None),
-    custom_terms: Optional[str] = Form(None),
-):
+async def redact_file_endpoint(file: UploadFile = File(...), allow_list: Optional[str] = Form(None), custom_terms: Optional[str] = Form(None)):
     data = await _read_upload(file)
     try:
         text = extract_text(file.filename, data)
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    al = _parse_json_field(allow_list, "allow_list")
-    ct = _parse_json_field(custom_terms, "custom_terms")
-    results = analyze_text(text, allow_list=al)
-    results += find_custom_terms(text, ct)
-    pairs = build_redaction_pairs(text, results)
+        raise HTTPException(400, str(e))
+    results = _run_analysis(text, _parse_list(allow_list, "allow_list"), _parse_list(custom_terms, "custom_terms"))
     try:
-        out, media_type = redact_file(file.filename, data, pairs)
+        out, media_type = redact_file(file.filename, data, build_redaction_pairs(text, results))
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    out_name = "redacted_" + file.filename
-    return StreamingResponse(
-        io.BytesIO(out),
-        media_type=media_type,
-        headers={"Content-Disposition": f'attachment; filename="{out_name}"'},
-    )
+        raise HTTPException(400, str(e))
+    return StreamingResponse(io.BytesIO(out), media_type=media_type, headers={"Content-Disposition": f'attachment; filename="redacted_{file.filename}"'})
