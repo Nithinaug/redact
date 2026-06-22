@@ -56,19 +56,6 @@ def analyze_text(text: str, language: str = "en", allow_list: List[str] = None) 
     return _dedupe_results(filtered)
 
 
-def find_custom_terms(text: str, terms: List[str]) -> List[RecognizerResult]:
-    results = []
-    lower = text.lower()
-    for term in terms:
-        term = term.strip()
-        if not term:
-            continue
-        lt, start = term.lower(), 0
-        while (idx := lower.find(lt, start)) != -1:
-            results.append(RecognizerResult("CUSTOM_TERM", idx, idx + len(term), 1.0))
-            start = idx + len(term)
-    return results
-
 
 def anonymize_text(text: str, analyzer_results):
     return get_anonymizer().anonymize(text=text, analyzer_results=analyzer_results)
