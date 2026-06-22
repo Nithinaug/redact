@@ -30,4 +30,12 @@ def build_custom_recognizers():
             patterns=[Pattern("driver_license", r"\b(?=[A-Z0-9]*[0-9])[A-Z0-9]{6,12}\b", 0.3)],
             context=["driver", "driving", "license", "licence", "DL"],
         ),
+        PatternRecognizer(
+            supported_entity="ORGANIZATION",
+            patterns=[Pattern(
+                "company_suffix",
+                r"(?-i)(?:[A-Z][a-z]+\s){1,6}(?:Pte\.?\s*Ltd\.?|Pvt\.?\s*Ltd\.?|Sdn\.?\s*Bhd\.?|Ltd\.?|Limited|Inc\.?|Corp\.?|Corporation|LLC|LLP|GmbH|Berhad|PLC)\b",
+                0.85,
+            )],
+        ),
     ]

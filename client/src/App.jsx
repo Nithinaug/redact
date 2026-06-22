@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useCallback } from 'react'
 
 const API = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
@@ -8,7 +8,54 @@ export default function App() {
   const [text, setText] = useState('')
   const [results, setResults] = useState([])
   const [error, setError] = useState('')
+  const [dragActive, setDragActive] = useState(false)
   const fileRef = useRef()
+
+  function handleFile(f) {
+    if (!f) return
+    const maxSize = 50 * 1024 * 1024
+    if (f.size > maxSize) {
+      setError('File too large. Maximum size is 50MB.')
+      return
+    }
+    setFile(f)
+    setError('')
+    setTimeout(() => handleAnalyzeFile(f), 0)
+  }
+
+  async function handleAnalyzeFile(f) {
+    setLoading(true)
+    setError('')
+    setText('')
+    setResults([])
+    try {
+      const form = new FormData()
+      form.append('file', f)
+      const res = await fetch(`${API}/analyze-file`, { method: 'POST', body: form })
+      if (!res.ok) throw new Error((await res.json()).detail || res.statusText)
+      const data = await res.json()
+      setText(data.text)
+      setResults(data.results)
+    } catch (e) {
+      setError(e.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleDrag = useCallback((e) => {
+    e.preventDefault()
+    e.stopPropagation()
+    if (e.type === 'dragenter' || e.type === 'dragover') setDragActive(true)
+    else if (e.type === 'dragleave') setDragActive(false)
+  }, [])
+
+  const handleDrop = useCallback((e) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setDragActive(false)
+    if (e.dataTransfer.files?.[0]) handleFile(e.dataTransfer.files[0])
+  }, [])
 
   async function handleAnalyze() {
     if (!file) return
@@ -62,7 +109,7 @@ export default function App() {
     for (const r of sorted) {
       if (r.start > prev) parts.push(<span key={`t${prev}`}>{text.slice(prev, r.start)}</span>)
       parts.push(
-        <mark key={`m${r.start}`} title={`${r.entity_type} (${r.score})`} style={{ background: 'var(--accent-bg)', border: '1px solid var(--accent-border)', borderRadius: 3, padding: '0 2px' }}>
+        <mark key={`m${r.start}`} title={`${r.entity_type} (${r.score})`} className="highlight">
           {text.slice(r.start, r.end)}
         </mark>
       )
@@ -73,58 +120,103 @@ export default function App() {
   }
 
   return (
-    <div style={{ padding: '40px 24px', textAlign: 'left', maxWidth: 800, margin: '0 auto' }}>
-      <h1 style={{ textAlign: 'center' }}>DocRedact</h1>
-      <p style={{ textAlign: 'center', marginBottom: 32 }}>Upload a document to detect and redact PII</p>
+    <div className="app">
+      {/* Header area */}
+      {!results.length && (
+        <div className="top-section">
+          <div className="hero">
+            <div className="page-header" onClick={() => window.location.reload()}>
+              <h1>DocRedact</h1>
+              <p className="page-heading">Upload Document for Redaction of Sensitive Information</p>
+            </div>
 
-      <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 24 }}>
-        <input ref={fileRef} type="file" accept=".pdf,.docx,.xlsx,.txt" onChange={e => setFile(e.target.files[0])} style={{ flex: 1 }} />
-        <button onClick={handleAnalyze} disabled={!file || loading} style={btnStyle}>
-          {loading ? 'Analyzing...' : 'Analyze'}
-        </button>
-        {results.length > 0 && (
-          <button onClick={handleRedact} disabled={loading} style={{ ...btnStyle, background: '#e74c3c' }}>
-            Redact & Download
-          </button>
-        )}
-      </div>
+            {loading ? (
+              <div className="dropzone-card">
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16, padding: '48px 0' }}>
+                  <div className="spinner" />
+                </div>
+              </div>
+            ) : (
+              <div className="dropzone-card">
+                <div
+                  className={`dropzone-inline ${dragActive ? 'dropzone-active' : ''}`}
+                  onDragEnter={handleDrag}
+                  onDragLeave={handleDrag}
+                  onDragOver={handleDrag}
+                  onDrop={handleDrop}
+                  onClick={() => fileRef.current?.click()}
+                >
+                  <div className="dropzone-icon"><svg width="72" height="72" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg></div>
+                  <p className="dropzone-hint">PDF, DOCX, XLSX, CSV,TEXT — up to 50MB</p>
+                  <input
+                    ref={fileRef}
+                    type="file"
+                    accept=".pdf,.docx,.xlsx,.csv,.txt,.json"
+                    onChange={e => handleFile(e.target.files[0])}
+                    hidden
+                  />
+                </div>
 
-      {error && <p style={{ color: '#e74c3c', marginBottom: 16 }}>{error}</p>}
-
-      {results.length > 0 && (
-        <>
-          <h2>Detected Entities ({results.length})</h2>
-          <div style={{ overflowX: 'auto', marginBottom: 24 }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
-              <thead>
-                <tr>
-                  {['Type', 'Text', 'Score', 'Recognizer'].map(h => (
-                    <th key={h} style={{ textAlign: 'left', padding: '8px 12px', borderBottom: '2px solid var(--border)', color: 'var(--text-h)' }}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {results.map((r, i) => (
-                  <tr key={i} style={{ borderBottom: '1px solid var(--border)' }}>
-                    <td style={cellStyle}><code style={{ fontSize: 12 }}>{r.entity_type}</code></td>
-                    <td style={cellStyle}>{text.slice(r.start, r.end)}</td>
-                    <td style={cellStyle}>{r.score}</td>
-                    <td style={cellStyle}>{r.recognizer}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+              </div>
+            )}
           </div>
-
-          <h2>Highlighted Text</h2>
-          <div style={{ background: 'var(--code-bg)', padding: 16, borderRadius: 8, whiteSpace: 'pre-wrap', fontFamily: 'var(--mono)', fontSize: 14, lineHeight: '160%', maxHeight: 500, overflow: 'auto' }}>
-            {highlightText()}
-          </div>
-        </>
+        </div>
       )}
+
+      {/* Results */}
+      {results.length > 0 && (
+        <div className="results-view">
+          <div className="results-header">
+            <div className="results-title">
+              <h2>Analysis Results</h2>
+              <span className="badge">{results.length} entities found</span>
+            </div>
+            <div className="results-actions">
+              <button className="btn btn-secondary" onClick={() => { setResults([]); setText(''); setFile(null) }}>
+                New Analysis
+              </button>
+              <button className="btn btn-danger" onClick={handleRedact} disabled={loading}>
+                Redact &amp; Download
+              </button>
+            </div>
+          </div>
+
+          <div className="results-body">
+            <div className="panel">
+              <h3>Detected Entities</h3>
+              <div className="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Type</th>
+                      <th>Text</th>
+                      <th>Score</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {results.map((r, i) => (
+                      <tr key={i}>
+                        <td><code>{r.entity_type}</code></td>
+                        <td className="entity-text">{text.slice(r.start, r.end)}</td>
+                        <td><span className="score">{r.score}</span></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="panel">
+              <h3>Highlighted Text</h3>
+              <div className="text-preview">
+                {highlightText()}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {error && <div className="error-toast">{error}</div>}
     </div>
   )
 }
-
-const btnStyle = { padding: '8px 20px', background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontWeight: 600, fontSize: 14 }
-const cellStyle = { padding: '8px 12px' }

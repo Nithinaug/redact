@@ -56,17 +56,38 @@ import re
 
 _DATE_PATTERN = re.compile(
     r"(?:"
-    r"\b\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}\b"          # 01/02/2024, 1-2-24
-    r"|\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+\d{1,2},?\s*\d{2,4}\b"  # Jan 1, 2024
-    r"|\b\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+\d{2,4}\b"    # 1 January 2024
-    r"|\b(?:19|20)\d{2}\b"                               # 2024, 2023
+    r"\b\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}\b"
+    r"|\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+\d{1,2},?\s*\d{2,4}\b"
+    r"|\b\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+\d{2,4}\b"
+    r"|\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+\d{4}\b"
+    r"|\b(?:19|20)\d{2}\b"
     r")",
     re.IGNORECASE,
 )
 
+_ADDRESS_WORDS = re.compile(
+    r"\b(?:St|Rd|Ave|Blvd|Dr|Ln|Ct|Pl|Way|Hwy|Pkwy|Cir|Ter|Loop|Trail|"
+    r"Street|Road|Avenue|Boulevard|Drive|Lane|Court|Place|Highway|Parkway|Circle|"
+    r"D\.?C\.?|VA|MD|CA|NY|TX|FL|NJ|PA|IL|OH|GA|NC|MI|WA|AZ|MA|TN|IN|MO|WI|MN|CO|AL|SC|"
+    r"Arlington|Washington|Manhattan|Brooklyn|Boston|Chicago|Houston|Phoenix|Philadelphia|"
+    r"San\s+(?:Francisco|Diego|Antonio|Jose)|Los\s+Angeles|New\s+York|"
+    r"\d{5}(?:-\d{4})?)\b",
+    re.IGNORECASE,
+)
+
+_LOCATION_FRAGMENT = re.compile(r"^[\s,]*(?:[A-Z]{2}|D\.?C\.?|(?:,?\s*[A-Z][a-z]+)+,?\s*[A-Z]{2})[\s,.]*$")
+
 
 def _is_valid_date(text: str, start: int, end: int) -> bool:
     return bool(_DATE_PATTERN.search(text[start:end]))
+
+
+def _looks_like_address(matched_text: str) -> bool:
+    return bool(_ADDRESS_WORDS.search(matched_text))
+
+
+def _is_location_fragment(matched_text: str) -> bool:
+    return bool(_LOCATION_FRAGMENT.match(matched_text))
 
 
 def analyze_text(text: str, language: str = "en") -> List[RecognizerResult]:
@@ -75,10 +96,15 @@ def analyze_text(text: str, language: str = "en") -> List[RecognizerResult]:
     for r in results:
         if r.score < MIN_SCORE:
             continue
+        matched = text[r.start:r.end]
         if r.entity_type == "DATE_TIME" and not _is_valid_date(text, r.start, r.end):
             continue
-        if r.entity_type == "PHONE_NUMBER" and not re.search(r"[\d\s\-\+\(\)]{7,}", text[r.start:r.end]):
+        if r.entity_type == "PHONE_NUMBER" and not re.search(r"[\d\s\-\+\(\)]{7,}", matched):
             continue
+        if r.entity_type == "PERSON" and (_looks_like_address(matched) or _is_location_fragment(matched)):
+            r = RecognizerResult("LOCATION", r.start, r.end, r.score)
+        if r.entity_type == "ORGANIZATION" and (_is_location_fragment(matched) or _looks_like_address(matched)):
+            r = RecognizerResult("LOCATION", r.start, r.end, r.score)
         filtered.append(r)
     return _dedupe_results(filtered)
 
