@@ -1,28 +1,28 @@
-from concurrent.futures import ThreadPoolExecutor
 from functools import lru_cache
 from typing import List
 
 from presidio_analyzer import AnalyzerEngine, Pattern, PatternRecognizer, RecognizerResult
-from presidio_analyzer.nlp_engine import NlpEngineProvider
-from presidio_analyzer.predefined_recognizers import SpacyRecognizer
+from presidio_analyzer.nlp_engine import TransformersNlpEngine
 from presidio_anonymizer import AnonymizerEngine
 
 from .recognizers import build_custom_recognizers
 
 MIN_SCORE = 0.5
-MAX_WORKERS = 4
 
 
 @lru_cache(maxsize=1)
 def get_analyzer() -> AnalyzerEngine:
-    nlp_config = {"nlp_engine_name": "spacy", "models": [{"lang_code": "en", "model_name": "en_core_web_trf"}]}
-    nlp_engine = NlpEngineProvider(nlp_configuration=nlp_config).create_engine()
+    nlp_engine = TransformersNlpEngine(
+        models=[{"lang_code": "en", "model_name": {
+            "spacy": "en_core_web_sm",
+            "transformers": "StanfordAIMI/stanford-deidentifier-base",
+        }}],
+    )
+    nlp_engine.load()
     engine = AnalyzerEngine(nlp_engine=nlp_engine)
-    engine.registry.add_recognizer(SpacyRecognizer(
-        supported_entities=["ORGANIZATION"],
-        check_label_groups=[({"ORGANIZATION"}, {"ORG"})],
-    ))
     engine.registry.remove_recognizer("UrlRecognizer")
+    engine.registry.remove_recognizer("DateRecognizer")
+    engine.registry.remove_recognizer("PhoneRecognizer")
     engine.registry.add_recognizer(PatternRecognizer(
         supported_entity="URL",
         patterns=[Pattern("url_strict", r"\bhttps?://[^\s]+", 0.6)],
@@ -52,36 +52,35 @@ def _dedupe_results(results: List[RecognizerResult]) -> List[RecognizerResult]:
     return deduped
 
 
+import re
+
+_DATE_PATTERN = re.compile(
+    r"(?:"
+    r"\b\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}\b"          # 01/02/2024, 1-2-24
+    r"|\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+\d{1,2},?\s*\d{2,4}\b"  # Jan 1, 2024
+    r"|\b\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+\d{2,4}\b"    # 1 January 2024
+    r"|\b(?:19|20)\d{2}\b"                               # 2024, 2023
+    r")",
+    re.IGNORECASE,
+)
+
+
+def _is_valid_date(text: str, start: int, end: int) -> bool:
+    return bool(_DATE_PATTERN.search(text[start:end]))
+
+
 def analyze_text(text: str, language: str = "en") -> List[RecognizerResult]:
     results = get_analyzer().analyze(text=text, language=language, return_decision_process=True)
-    filtered = [r for r in results if r.score >= MIN_SCORE]
+    filtered = []
+    for r in results:
+        if r.score < MIN_SCORE:
+            continue
+        if r.entity_type == "DATE_TIME" and not _is_valid_date(text, r.start, r.end):
+            continue
+        if r.entity_type == "PHONE_NUMBER" and not re.search(r"[\d\s\-\+\(\)]{7,}", text[r.start:r.end]):
+            continue
+        filtered.append(r)
     return _dedupe_results(filtered)
-
-
-def _analyze_page(args) -> List[RecognizerResult]:
-    page_text, offset, language = args
-    if not page_text.strip():
-        return []
-    results = get_analyzer().analyze(text=page_text, language=language, return_decision_process=True)
-    return [RecognizerResult(r.entity_type, r.start + offset, r.end + offset, r.score)
-            for r in results if r.score >= MIN_SCORE]
-
-
-def analyze_pages(pages: List[str], language: str = "en") -> List[RecognizerResult]:
-    offsets = []
-    offset = 0
-    for page in pages:
-        offsets.append(offset)
-        offset += len(page) + 1  # +1 for the \n joining pages
-
-    args = [(page, off, language) for page, off in zip(pages, offsets)]
-
-    all_results = []
-    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
-        for page_results in pool.map(_analyze_page, args):
-            all_results.extend(page_results)
-
-    return _dedupe_results(all_results)
 
 
 def anonymize_text(text: str, analyzer_results):
