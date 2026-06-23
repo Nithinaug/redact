@@ -188,7 +188,7 @@ export default function App() {
         <div className="top-section">
           <div className="hero">
             <div className="page-header">
-              <p className="page-heading">Upload Text & Files for Redaction</p>
+              <p className="page-heading">Upload Text & Document for Redaction</p>
             </div>
 
             {loading ? (
