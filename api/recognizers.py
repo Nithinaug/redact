@@ -7,7 +7,7 @@ def build_custom_recognizers():
         SgFinRecognizer(),
         SgUenRecognizer(),
         PatternRecognizer(
-            supported_entity="SG_PHONE_NUMBER",
+            supported_entity="PHONE_NUMBER",
             patterns=[Pattern("sg_phone", r"\b[89]\d{7}\b", 0.5)],
             context=["phone", "mobile", "contact", "call", "tel", "hp"],
         ),
@@ -29,6 +29,11 @@ def build_custom_recognizers():
             supported_entity="DRIVER_LICENSE",
             patterns=[Pattern("driver_license", r"\b(?=[A-Z0-9]*[0-9])[A-Z0-9]{6,12}\b", 0.3)],
             context=["driver", "driving", "license", "licence", "DL"],
+        ),
+        PatternRecognizer(
+            supported_entity="CVV",
+            patterns=[Pattern("cvv", r"\b\d{3,4}\b", 0.3)],
+            context=["CVV", "CVC", "CVV2", "CVC2", "security code", "card verification"],
         ),
         PatternRecognizer(
             supported_entity="ORGANIZATION",

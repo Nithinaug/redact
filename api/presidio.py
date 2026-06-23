@@ -40,12 +40,16 @@ def get_anonymizer() -> AnonymizerEngine:
 def _dedupe_results(results: List[RecognizerResult]) -> List[RecognizerResult]:
     if not results:
         return results
-    results.sort(key=lambda r: (r.start, -r.score))
+    results.sort(key=lambda r: (r.start, -(r.end - r.start), -r.score))
     deduped = [results[0]]
     for r in results[1:]:
         prev = deduped[-1]
+        if r.start >= prev.start and r.end <= prev.end:
+            continue
         if r.start < prev.end:
-            if r.score > prev.score:
+            if (r.end - r.start) > (prev.end - prev.start):
+                deduped[-1] = r
+            elif (r.end - r.start) == (prev.end - prev.start) and r.score > prev.score:
                 deduped[-1] = r
         else:
             deduped.append(r)
@@ -77,6 +81,11 @@ _ADDRESS_WORDS = re.compile(
 
 _LOCATION_FRAGMENT = re.compile(r"^[\s,]*(?:[A-Z]{2}|D\.?C\.?|(?:,?\s*[A-Z][a-z]+)+,?\s*[A-Z]{2})[\s,.]*$")
 
+_BANK_CONTEXT = re.compile(
+    r"\b(?:account|acct|bank|IBAN|SWIFT|sort\s*code|routing|DBS|OCBC|UOB|POSB|Citibank|HSBC|Standard\s*Chartered)\b",
+    re.IGNORECASE,
+)
+
 
 def _is_valid_date(text: str, start: int, end: int) -> bool:
     return bool(_DATE_PATTERN.search(text[start:end]))
@@ -101,6 +110,10 @@ def analyze_text(text: str, language: str = "en") -> List[RecognizerResult]:
             continue
         if r.entity_type == "PHONE_NUMBER" and not re.search(r"[\d\s\-\+\(\)]{7,}", matched):
             continue
+        if r.entity_type == "PHONE_NUMBER":
+            context_window = text[max(0, r.start - 100):r.start]
+            if _BANK_CONTEXT.search(context_window):
+                r = RecognizerResult("ID", r.start, r.end, r.score)
         if r.entity_type == "PERSON" and (_looks_like_address(matched) or _is_location_fragment(matched)):
             r = RecognizerResult("LOCATION", r.start, r.end, r.score)
         if r.entity_type == "ORGANIZATION" and (_is_location_fragment(matched) or _looks_like_address(matched)):

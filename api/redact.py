@@ -25,10 +25,33 @@ def build_redaction_pairs(text: str, analyzer_results):
         if r.start < 0 or r.end > len(text) or r.start >= r.end:
             continue
         original = text[r.start:r.end]
-        if not original.strip() or original in seen:
+        if not original.strip() or len(original.strip()) < 3 or original in seen:
             continue
         seen.add(original)
         pairs.append((original, f"<{r.entity_type}>"))
+    pairs.sort(key=lambda p: len(p[0]), reverse=True)
+    return pairs
+
+
+def build_redaction_pairs_from_dicts(text: str, results: list, split_tokens: bool = False):
+    pairs = []
+    seen = set()
+    ordered = sorted(results, key=lambda r: (r["end"] - r["start"], r.get("score", 0)), reverse=True)
+    for r in ordered:
+        start, end = r["start"], r["end"]
+        if start < 0 or end > len(text) or start >= end:
+            continue
+        original = text[start:end]
+        if not original.strip() or len(original.strip()) < 3 or original in seen:
+            continue
+        seen.add(original)
+        replacement = f"<{r['entity_type']}>"
+        pairs.append((original, replacement))
+        if split_tokens:
+            for token in original.split():
+                if token not in seen and token.strip():
+                    seen.add(token)
+                    pairs.append((token, replacement))
     pairs.sort(key=lambda p: len(p[0]), reverse=True)
     return pairs
 
@@ -105,18 +128,26 @@ def _redact_xlsx(data: bytes, pairs) -> bytes:
 
 
 def _redact_pdf(data: bytes, pairs) -> bytes:
+    originals = list(set(p[0] for p in pairs))
+
     with fitz.open(stream=data, filetype="pdf") as doc:
-        for page in doc:
-            for original, replacement in pairs:
+        page_texts = {}
+        for page_num in range(len(doc)):
+            page_texts[page_num] = doc[page_num].get_text()
+
+        page_matches = {}
+        for original in originals:
+            for page_num, pt in page_texts.items():
+                if original in pt:
+                    page_matches.setdefault(page_num, set()).add(original)
+
+        for page_num, matches in page_matches.items():
+            page = doc[page_num]
+            for original in matches:
                 for rect in page.search_for(original):
-                    page.add_redact_annot(
-                        rect,
-                        text=replacement,
-                        fill=(0, 0, 0),
-                        text_color=(1, 1, 1),
-                        fontsize=8,
-                    )
-            page.apply_redactions()
+                    page.add_redact_annot(rect, text="", fill=(0, 0, 0))
+            page.apply_redactions(images=fitz.PDF_REDACT_IMAGE_NONE)
+
         out = io.BytesIO()
-        doc.save(out, garbage=4, deflate=True)
+        doc.save(out, garbage=2, deflate=True)
     return out.getvalue()
