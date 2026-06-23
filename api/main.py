@@ -1,7 +1,7 @@
 import io
 import json
 import os
-from typing import List, Optional
+from typing import Optional
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -9,14 +9,18 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from .presidio import analyze_text, anonymize_text, supported_entities
-from .extract import extract_text
+from .extract import extract_text, extension_of
 from .redact import build_redaction_pairs_from_dicts, redact_file
 
 MAX_UPLOAD_BYTES = 50 * 1024 * 1024
-CORS_ORIGINS = os.getenv("CORS_ORIGINS", "http://localhost:5173").split(",")
 
 app = FastAPI(title="Redactor API")
-app.add_middleware(CORSMiddleware, allow_origins=CORS_ORIGINS, allow_methods=["GET", "POST", "OPTIONS"], allow_headers=["Content-Type"])
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=os.getenv("CORS_ORIGINS", "http://localhost:5173").split(","),
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["Content-Type"],
+)
 
 
 class TextRequest(BaseModel):
@@ -24,10 +28,7 @@ class TextRequest(BaseModel):
 
 
 def _to_dicts(results):
-    out = []
-    for r in results:
-        out.append({"entity_type": r.entity_type, "start": r.start, "end": r.end, "score": round(r.score, 2), "recognizer": (r.recognition_metadata or {}).get("recognizer_name", "Unknown")})
-    return out
+    return [{"entity_type": r.entity_type, "start": r.start, "end": r.end, "score": round(r.score, 2)} for r in results]
 
 
 async def _read_upload(file: UploadFile) -> bytes:
@@ -51,8 +52,7 @@ def entities(language: str = "en"):
 def analyze(req: TextRequest):
     if not req.text.strip():
         raise HTTPException(400, "text is empty")
-    results = analyze_text(req.text)
-    return {"text": req.text, "results": _to_dicts(results)}
+    return {"text": req.text, "results": _to_dicts(analyze_text(req.text))}
 
 
 @app.post("/analyze-file")
@@ -62,8 +62,7 @@ async def analyze_file(file: UploadFile = File(...)):
         text = extract_text(file.filename, data)
     except ValueError as e:
         raise HTTPException(400, str(e))
-    results = analyze_text(text)
-    return {"text": text, "results": _to_dicts(results)}
+    return {"text": text, "results": _to_dicts(analyze_text(text))}
 
 
 @app.post("/anonymize")
@@ -75,10 +74,7 @@ def anonymize(req: TextRequest):
 
 
 @app.post("/redact-file")
-async def redact_file_endpoint(
-    file: UploadFile = File(...),
-    results: Optional[str] = Form(None),
-):
+async def redact_file_endpoint(file: UploadFile = File(...), results: Optional[str] = Form(None)):
     data = await _read_upload(file)
     try:
         text = extract_text(file.filename, data)
@@ -88,21 +84,13 @@ async def redact_file_endpoint(
     if results:
         try:
             result_dicts = json.loads(results)
-            print(f"[redact] Using {len(result_dicts)} pre-computed results (skipping analysis)")
         except (ValueError, TypeError):
             raise HTTPException(400, "results must be a JSON array")
     else:
-        print("[redact] No results provided, running full analysis")
         result_dicts = _to_dicts(analyze_text(text))
 
     try:
-        from .extract import extension_of
-        split = extension_of(file.filename) == ".csv"
-        pairs = build_redaction_pairs_from_dicts(text, result_dicts, split_tokens=split)
-        short_pairs = [(p[0], p[1]) for p in pairs if len(p[0]) < 5]
-        print(f"[redact] {len(pairs)} unique redaction pairs ({len(short_pairs)} short)")
-        if short_pairs:
-            print(f"[redact] Short pairs: {short_pairs[:20]}")
+        pairs = build_redaction_pairs_from_dicts(text, result_dicts, split_tokens=extension_of(file.filename) == ".csv")
         out, media_type = redact_file(file.filename, data, pairs)
     except ValueError as e:
         raise HTTPException(400, str(e))

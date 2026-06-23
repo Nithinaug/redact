@@ -384,6 +384,10 @@ h3 {
   overflow: auto;
   flex: 1;
 }
+.entity-text{
+  font-family: DM sans-serif;
+  font-size: 15px;
+}
 
 table {
   width: 100%;
@@ -395,7 +399,7 @@ thead th {
   text-align: left;
   padding: 8px 12px;
   border-bottom: 1px solid var(--border);
-  color: var(--text);
+  color:black;
   font-weight: 500;
   font-size: 12px;
   text-transform: uppercase;
@@ -422,9 +426,9 @@ td code {
   background: var(--bg-elevated);
   padding: 2px 8px;
   border-radius: 4px;
-  font-family: var(--mono);
-  font-size: 11px;
-  color: var(--accent);
+  font-family:DM sans-serif;
+  font-size: 13px;
+  color:var(--accent);
 }
 
 .entity-text {
