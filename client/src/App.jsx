@@ -13,6 +13,7 @@ export default function App() {
   const [mode, setMode] = useState('file')
   const [disabledTypes, setDisabledTypes] = useState(new Set())
   const fileRef = useRef()
+  const textRef = useRef()
   const abortRef = useRef(null)
 
   const fileUrl = useMemo(() => {
@@ -187,7 +188,7 @@ export default function App() {
         <div className="top-section">
           <div className="hero">
             <div className="page-header">
-              <p className="page-heading">Upload Text & Document for Redaction of Sensitive Information</p>
+              <p className="page-heading">Upload Text & Document for Redaction</p>
             </div>
 
             {loading ? (
@@ -200,7 +201,7 @@ export default function App() {
               <div className="dropzone-card">
                 <div className="mode-tabs">
                   <button className={`mode-tab ${mode === 'file' ? 'active' : ''}`} onClick={() => setMode('file')}>Upload File</button>
-                  <button className={`mode-tab ${mode === 'text' ? 'active' : ''}`} onClick={() => setMode('text')}>Paste Text</button>
+                  <button className={`mode-tab ${mode === 'text' ? 'active' : ''}`} onClick={() => { setMode('text'); setTimeout(() => textRef.current?.focus(), 0) }}>Paste Text</button>
                 </div>
 
                 {mode === 'file' ? (
@@ -237,13 +238,34 @@ export default function App() {
                   </div>
                 ) : (
                   <div className="text-input-area">
-                    <textarea
-                      className="text-input"
-                      placeholder=""
-                      value={inputText}
-                      onChange={e => { setInputText(e.target.value); setTextResults([]); setTextRedacted(false) }}
-                    />
-                    {textResults.length > 0 && (
+                    {textResults.length > 0 && !textRedacted ? (
+                      <div className="text-input text-highlight-preview">
+                        {(() => {
+                          const filtered = textResults.filter(r => !disabledTypes.has(r.entity_type))
+                          const sorted = [...filtered].sort((a, b) => a.start - b.start)
+                          const parts = []
+                          let prev = 0
+                          for (const r of sorted) {
+                            if (r.start > prev) parts.push(<span key={`t${prev}`}>{inputText.slice(prev, r.start)}</span>)
+                            parts.push(
+                              <mark key={`m${r.start}`} title={r.entity_type} className="highlight">{inputText.slice(r.start, r.end)}</mark>
+                            )
+                            prev = r.end
+                          }
+                          if (prev < inputText.length) parts.push(<span key="end">{inputText.slice(prev)}</span>)
+                          return parts
+                        })()}
+                      </div>
+                    ) : (
+                      <textarea
+                        ref={textRef}
+                        className="text-input"
+                        placeholder=""
+                        value={inputText}
+                        onChange={e => { setInputText(e.target.value); setTextResults([]); setTextRedacted(false) }}
+                      />
+                    )}
+                    {textResults.length > 0 && !textRedacted && (
                       <div className="text-toggles">
                         {textEntityTypes.map(type => (
                           <label key={type} className="entity-toggle">
@@ -337,7 +359,7 @@ export default function App() {
               </div>
             </div>
 
-            <div className="panel entities-sidebar">
+            <div className="entities-sidebar">
               <div className="entity-toggles">
                 {entityTypes.map(type => (
                   <label key={type} className="entity-toggle">
@@ -349,25 +371,6 @@ export default function App() {
                     />
                   </label>
                 ))}
-              </div>
-              <h3> Entities ({filteredResults.length})</h3>
-              <div className="table-wrap">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Type</th>
-                      <th>Text</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredResults.map((r, i) => (
-                      <tr key={i}>
-                        <td><code>{r.entity_type}</code></td>
-                        <td className="entity-text">{text.slice(r.start, r.end)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
               </div>
             </div>
           </div>

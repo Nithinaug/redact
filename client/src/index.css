@@ -196,6 +196,7 @@ h3 {
   line-height: 1.7;
   color: var(--text-h);
   background: var(--bg);
+  caret-color: var(--text-h);
   resize: vertical;
   outline: none;
   transition: border-color 0.15s;
@@ -208,6 +209,12 @@ h3 {
 .text-input::placeholder {
   color: var(--text);
   opacity: 0.5;
+}
+
+.text-highlight-preview {
+  white-space: pre-wrap;
+  overflow-y: auto;
+  cursor: default;
 }
 
 .text-toggles {
@@ -484,7 +491,7 @@ td code {
   border-radius: 4px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
   padding: 64px 56px;
-  min-height: 880px;
+  min-height: auto;
 }
 
 .doc-page-content {
@@ -496,9 +503,16 @@ td code {
 }
 
 .entities-sidebar {
-  width: 380px;
-  min-width: 320px;
-  max-height: 80vh;
+  width: 300px;
+  min-width: 250px;
+  align-self: flex-start;
+  position: sticky;
+  top: 60px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 20px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
 }
 
 @media (max-width: 1000px) {
@@ -519,9 +533,8 @@ td code {
   color: var(--text);
 }
 .entity-toggles {
-  margin-bottom: 16px;
-  padding-bottom: 16px;
-  border-bottom: 1px solid var(--border);
+  margin-bottom: 0;
+  padding-bottom: 0;
 }
 
 .entity-toggles h3 {
@@ -563,9 +576,8 @@ td code {
 }
 
 .entity-toggles {
-  margin-bottom: 16px;
-  padding-bottom: 16px;
-  border-bottom: 1px solid var(--border);
+  margin-bottom: 0;
+  padding-bottom: 0;
 }
 
 .entity-toggles h3 {

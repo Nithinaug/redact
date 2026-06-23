@@ -93,10 +93,15 @@ def _reclassify(r, text):
         return None
     if r.entity_type == "PHONE_NUMBER" and not re.search(r"[\d\s\-\+\(\)]{7,}", matched):
         return None
-    if r.entity_type == "PHONE_NUMBER" and _BANK_CONTEXT.search(ctx_before):
-        return RecognizerResult("ID", r.start, r.end, r.score)
-    if r.entity_type == "ID" and re.search(r"^\+?\d[\d\s\-\(\)]{6,}$", matched.strip()) and _PHONE_CONTEXT.search(ctx_before):
-        return RecognizerResult("PHONE_NUMBER", r.start, r.end, r.score)
+    if r.entity_type == "PHONE_NUMBER":
+        ctx_lower = ctx_before.lower()
+        if _BANK_CONTEXT.search(ctx_before) or "account" in ctx_lower or "acct" in ctx_lower:
+            return RecognizerResult("ID", r.start, r.end, r.score)
+
+    if r.entity_type == "ID" and re.search(r"^\+?\d[\d\s\-\(\)]{6,}$", matched.strip()):
+        short_ctx = text[max(0, r.start - 30):r.start].lower()
+        if _PHONE_CONTEXT.search(short_ctx) and not _BANK_CONTEXT.search(ctx_before):
+            return RecognizerResult("PHONE_NUMBER", r.start, r.end, r.score)
     if r.entity_type == "PERSON" and (_ADDRESS_WORDS.search(matched) or _LOCATION_FRAGMENT.match(matched)):
         return RecognizerResult("LOCATION", r.start, r.end, r.score)
     if r.entity_type == "ORGANIZATION" and (_LOCATION_FRAGMENT.match(matched) or _ADDRESS_WORDS.search(matched)):

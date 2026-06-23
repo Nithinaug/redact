@@ -21,8 +21,11 @@ def build_custom_recognizers():
         ),
         PatternRecognizer(
             supported_entity="BANK_ACCOUNT",
-            patterns=[Pattern("bank_account", r"\b\d{3}[\-\s]?\d{5,9}\b", 0.3)],
-            context=["account number", "bank account", "account no", "acct", "savings",
+            patterns=[
+                Pattern("bank_account_sep", r"\b\d{3}[\-\s]?\d{5,9}\b", 0.3),
+                Pattern("bank_account_plain", r"\b\d{7,12}\b", 0.2),
+            ],
+            context=["account number", "bank account", "account no", "account", "acct", "savings",
                      "DBS", "OCBC", "UOB", "POSB", "Citibank", "HSBC", "Standard Chartered"],
         ),
         PatternRecognizer(
