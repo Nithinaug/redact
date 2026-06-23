@@ -247,13 +247,12 @@ export default function App() {
                       <div className="text-toggles">
                         {textEntityTypes.map(type => (
                           <label key={type} className="entity-toggle">
+                            <span className="entity-label">{type} ({textResults.filter(r => r.entity_type === type).length})</span>
                             <input
                               type="checkbox"
                               checked={!disabledTypes.has(type)}
                               onChange={() => toggleType(type)}
                             />
-                            <code>{type}</code>
-                            <span className="entity-count">{textResults.filter(r => r.entity_type === type).length}</span>
                           </label>
                         ))}
                       </div>
@@ -340,20 +339,18 @@ export default function App() {
 
             <div className="panel entities-sidebar">
               <div className="entity-toggles">
-                <h3>Entity Types</h3>
                 {entityTypes.map(type => (
                   <label key={type} className="entity-toggle">
+                    <span className="entity-label">{type} ({results.filter(r => r.entity_type === type).length})</span>
                     <input
                       type="checkbox"
                       checked={!disabledTypes.has(type)}
                       onChange={() => toggleType(type)}
                     />
-                    <code>{type}</code>
-                    <span className="entity-count">{results.filter(r => r.entity_type === type).length}</span>
                   </label>
                 ))}
               </div>
-              <h3>Detected Entities ({filteredResults.length})</h3>
+              <h3> Entities ({filteredResults.length})</h3>
               <div className="table-wrap">
                 <table>
                   <thead>
