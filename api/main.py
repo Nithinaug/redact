@@ -12,7 +12,7 @@ from .presidio import analyze_text, anonymize_text, supported_entities
 from .extract import extract_text, extension_of
 from .redact import build_redaction_pairs_from_dicts, redact_file
 
-MAX_UPLOAD_BYTES = 50 * 1024 * 1024
+MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 
 app = FastAPI(title="Redactor API")
 app.add_middleware(
