@@ -122,5 +122,5 @@ def _redact_pdf(data, pairs):
                     page.add_redact_annot(rect, text="", fill=(0, 0, 0))
             page.apply_redactions(images=fitz.PDF_REDACT_IMAGE_NONE)
         out = io.BytesIO()
-        doc.save(out, garbage=2, deflate=True)
+        doc.save(out, garbage=4, deflate=True, clean=True)
     return out.getvalue()

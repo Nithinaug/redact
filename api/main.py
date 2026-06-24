@@ -3,9 +3,9 @@ import json
 import os
 from typing import Optional
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel
 
 from .presidio import analyze_text, anonymize_text, supported_entities
@@ -74,7 +74,7 @@ def anonymize(req: TextRequest):
 
 
 @app.post("/redact-file")
-async def redact_file_endpoint(file: UploadFile = File(...), results: Optional[str] = Form(None)):
+async def redact_file_endpoint(request: Request, file: UploadFile = File(...), results: Optional[str] = Form(None)):
     data = await _read_upload(file)
     try:
         text = extract_text(file.filename, data)
@@ -88,6 +88,9 @@ async def redact_file_endpoint(file: UploadFile = File(...), results: Optional[s
             raise HTTPException(400, "results must be a JSON array")
     else:
         result_dicts = _to_dicts(analyze_text(text))
+
+    if await request.is_disconnected():
+        return Response(status_code=499)
 
     try:
         pairs = build_redaction_pairs_from_dicts(text, result_dicts, split_tokens=extension_of(file.filename) == ".csv")
