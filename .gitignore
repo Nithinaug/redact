@@ -1,5 +1,9 @@
 .idea/
+*.iml
 __pycache__/
 *.pyc
 desktop.ini
 node_modules/
+client/dist/
+samples/
+.env
