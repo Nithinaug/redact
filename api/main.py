@@ -3,9 +3,12 @@ import json
 import os
 from typing import Optional
 
+from pathlib import Path
+
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from .presidio import analyze_text, anonymize_text, supported_entities
@@ -103,6 +106,11 @@ async def redact_file_endpoint(request: Request, file: UploadFile = File(...), r
     except ValueError as e:
         raise HTTPException(400, str(e))
     return StreamingResponse(io.BytesIO(out), media_type=media_type, headers={"Content-Disposition": f'attachment; filename="redacted_{file.filename}"'})
+
+
+STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
+if STATIC_DIR.is_dir():
+    app.mount("/", StaticFiles(directory=str(STATIC_DIR), html=True))
 
 
 if __name__ == "__main__":
