@@ -188,7 +188,7 @@ export default function App() {
         <div className="top-section">
           <div className="hero">
             <div className="page-header">
-              <p className="page-heading">Upload Text & Document for Redaction</p>
+              <p className="page-heading">Upload Text & Files for Redaction</p>
             </div>
 
             {loading ? (
@@ -216,7 +216,7 @@ export default function App() {
                     {!file ? (
                       <>
                         <div className="dropzone-icon"><svg width="72" height="72" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg></div>
-                        <p className="dropzone-hint">PDF, DOCX, XLSX, CSV — up to 25MB</p>
+                        <p className="dropzone-hint">PDF, DOCX, XLSX, CSV, JPG, PNG — up to 25MB</p>
                       </>
                     ) : (
                       <div className="file-ready">
@@ -231,7 +231,7 @@ export default function App() {
                     <input
                       ref={fileRef}
                       type="file"
-                      accept=".pdf,.docx,.xlsx,.csv,.txt,.json"
+                      accept=".pdf,.docx,.xlsx,.csv,.txt,.json,.jpg,.jpeg,.png,.tiff,.tif,.bmp"
                       onChange={e => handleFile(e.target.files[0])}
                       hidden
                     />

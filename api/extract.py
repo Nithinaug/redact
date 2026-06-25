@@ -4,7 +4,11 @@ import os
 
 import fitz
 import openpyxl
+import pytesseract
 from docx import Document
+from PIL import Image
+
+IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".tiff", ".tif", ".bmp"}
 
 
 def extension_of(filename: str) -> str:
@@ -23,6 +27,8 @@ def extract_text(filename: str, data: bytes) -> str:
         return _extract_docx(data)
     if ext == ".xlsx":
         return _extract_xlsx(data)
+    if ext in IMAGE_EXTS:
+        return _extract_image(data)
     raise ValueError(f"unsupported file type: {ext}")
 
 
@@ -61,3 +67,13 @@ def _extract_xlsx(data: bytes) -> str:
                 lines.append(" ".join(cells))
     wb.close()
     return "\n".join(lines)
+
+
+def _extract_image(data: bytes) -> str:
+    img = Image.open(io.BytesIO(data))
+    gray = img.convert("L")
+    bw = gray.point(lambda x: 0 if x < 180 else 255, "1").convert("L")
+    text = pytesseract.image_to_string(bw, config="--psm 6 --oem 1")
+    if not text.strip():
+        raise ValueError("no text found in image")
+    return text.strip()

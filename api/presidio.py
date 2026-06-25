@@ -4,6 +4,7 @@ from typing import List
 from presidio_analyzer import AnalyzerEngine, Pattern, PatternRecognizer, RecognizerResult
 from presidio_analyzer.nlp_engine import TransformersNlpEngine
 from presidio_anonymizer import AnonymizerEngine
+from presidio_image_redactor import ImageRedactorEngine, ImageAnalyzerEngine
 
 from .fixes import build_custom_recognizers, reclassify, dedupe_results, merge_adjacent
 
@@ -52,6 +53,12 @@ def analyze_text(text: str, language: str = "en") -> List[RecognizerResult]:
 
 def anonymize_text(text: str, analyzer_results):
     return get_anonymizer().anonymize(text=text, analyzer_results=analyzer_results)
+
+
+@lru_cache(maxsize=1)
+def get_image_redactor() -> ImageRedactorEngine:
+    image_analyzer = ImageAnalyzerEngine(analyzer_engine=get_analyzer())
+    return ImageRedactorEngine(image_analyzer_engine=image_analyzer)
 
 
 def supported_entities(language: str = "en"):

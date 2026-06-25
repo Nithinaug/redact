@@ -4,8 +4,10 @@ import io
 import fitz
 import openpyxl
 from docx import Document
+from PIL import Image
 
-from .extract import extension_of
+from .extract import extension_of, IMAGE_EXTS
+from .presidio import get_image_redactor
 
 TYPES = {
     ".txt": "text/plain; charset=utf-8",
@@ -14,6 +16,12 @@ TYPES = {
     ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     ".pdf": "application/pdf",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".png": "image/png",
+    ".tiff": "image/tiff",
+    ".tif": "image/tiff",
+    ".bmp": "image/bmp",
 }
 
 
@@ -59,6 +67,19 @@ def redact_file(filename, data, pairs):
     else:
         raise ValueError(f"unsupported file type: {ext}")
     return out, TYPES[ext]
+
+
+def redact_image_file(data, entities):
+    img = Image.open(io.BytesIO(data))
+    fmt = img.format or "PNG"
+    engine = get_image_redactor()
+    redacted = engine.redact(img, fill=(0, 0, 0), entities=entities)
+    buf = io.BytesIO()
+    redacted.save(buf, format=fmt)
+    ext = f".{fmt.lower()}"
+    if ext == ".jpeg":
+        ext = ".jpg"
+    return buf.getvalue(), TYPES.get(ext, f"image/{fmt.lower()}")
 
 
 def _redact_csv(data, pairs):

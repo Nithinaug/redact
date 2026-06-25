@@ -9,8 +9,8 @@ from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel
 
 from .presidio import analyze_text, anonymize_text, supported_entities
-from .extract import extract_text, extension_of
-from .redact import build_redaction_pairs_from_dicts, redact_file
+from .extract import extract_text, extension_of, IMAGE_EXTS
+from .redact import build_redaction_pairs_from_dicts, redact_file, redact_image_file
 
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 
@@ -93,8 +93,13 @@ async def redact_file_endpoint(request: Request, file: UploadFile = File(...), r
         return Response(status_code=499)
 
     try:
-        pairs = build_redaction_pairs_from_dicts(text, result_dicts, split_tokens=extension_of(file.filename) == ".csv")
-        out, media_type = redact_file(file.filename, data, pairs)
+        ext = extension_of(file.filename)
+        if ext in IMAGE_EXTS:
+            entities = list(set(r["entity_type"] for r in result_dicts))
+            out, media_type = redact_image_file(data, entities)
+        else:
+            pairs = build_redaction_pairs_from_dicts(text, result_dicts, split_tokens=ext == ".csv")
+            out, media_type = redact_file(file.filename, data, pairs)
     except ValueError as e:
         raise HTTPException(400, str(e))
     return StreamingResponse(io.BytesIO(out), media_type=media_type, headers={"Content-Disposition": f'attachment; filename="redacted_{file.filename}"'})
