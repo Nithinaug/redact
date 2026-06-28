@@ -8,12 +8,13 @@ Staff upload a document or paste text, and the system extracts text content, run
 
 ## Features
 
-* **Three-layer PII detection**: StanfordAIMI/stanford-deidentifier-base NER model + Presidio regex recognizers + custom recognizers.
+* **Three-layer PII detection**: StanfordAIMI/stanford-deidentifier-base NER model + Presidio regex recognizers + custom pattern recognizers that detect entity types beyond standard categories (Singapore UEN, financial identifiers), with a tuned confidence threshold (0.5) to minimize false positives.
 * **Post-processing pipeline**: reclassification (e.g. "Washington DC" from PERSON to LOCATION), deduplication of overlapping detections, and merging of adjacent entities.
 * **Human-in-the-loop review**: entity type toggles with counts let users control exactly what gets redacted before downloading.
 * **Multi-format support**: PDF, DOCX, XLSX, CSV, TXT, JSON, JPG, PNG, TIFF, BMP.
-* **PDF black-bar redaction**: uses PyMuPDF to draw redaction annotations over the original document layout, preserving formatting.
-* **Image redaction**: Tesseract OCR extracts text for analysis, Presidio ImageRedactorEngine handles pixel-level redaction.
+* **PDF black-bar redaction**: uses PyMuPDF to draw pixel-level redaction annotations over the original document layout, preserving formatting with entity type labels.
+* **Office document redaction**: structure-aware run-level replacements inside DOCX and cell-level replacements in XLSX, preserving document structure.
+* **Image redaction**: Tesseract OCR with grayscale-to-binary preprocessing extracts text for analysis, Presidio ImageRedactorEngine handles pixel-level redaction.
 * **Text mode**: paste text directly, analyze, review highlights, and redact in-browser without file upload.
 * **Pre-computed results**: the redact endpoint accepts already-analyzed results to avoid re-analysis on download.
 
