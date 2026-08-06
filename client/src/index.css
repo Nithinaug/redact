@@ -622,6 +622,15 @@ td code {
   border-radius: 3px;
   padding: 0 3px;
   color: var(--text-h);
+  cursor: pointer;
+}
+
+.highlight-disabled {
+  background: transparent;
+  border: 1px dashed var(--border);
+  color: var(--text-muted, #94a3b8);
+  text-decoration: line-through;
+  opacity: 0.6;
 }
 
 /* Spinner */

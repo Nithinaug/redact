@@ -11,7 +11,7 @@ export default function App() {
   const [dragActive, setDragActive] = useState(false)
   const [inputText, setInputText] = useState('')
   const [mode, setMode] = useState('file')
-  const [disabledTypes, setDisabledTypes] = useState(new Set())
+  const [disabledIds, setDisabledIds] = useState(new Set())
   const fileRef = useRef()
   const textRef = useRef()
   const abortRef = useRef(null)
@@ -41,7 +41,7 @@ export default function App() {
     setLoading(true)
     setError('')
     setTextResults([])
-    setDisabledTypes(new Set())
+    setDisabledIds(new Set())
     try {
       const res = await fetch(`${API}/analyze`, {
         method: 'POST',
@@ -58,10 +58,35 @@ export default function App() {
     }
   }
 
+  const resultKey = r => `${r.start}-${r.end}`
+
+  function toggleInstance(r) {
+    setDisabledIds(prev => {
+      const next = new Set(prev)
+      const key = resultKey(r)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }
+
+  function toggleType(type, activeResults) {
+    const ofType = activeResults.filter(r => r.entity_type === type)
+    const allEnabled = ofType.every(r => !disabledIds.has(resultKey(r)))
+    setDisabledIds(prev => {
+      const next = new Set(prev)
+      for (const r of ofType) {
+        if (allEnabled) next.add(resultKey(r))
+        else next.delete(resultKey(r))
+      }
+      return next
+    })
+  }
+
   function handleRedactText() {
     let redacted = inputText
     const filtered = [...textResults]
-      .filter(r => !disabledTypes.has(r.entity_type))
+      .filter(r => !disabledIds.has(resultKey(r)))
       .sort((a, b) => b.start - a.start)
     for (const r of filtered) {
       redacted = redacted.slice(0, r.start) + `<${r.entity_type}>` + redacted.slice(r.end)
@@ -153,16 +178,7 @@ export default function App() {
   }
 
   const entityTypes = [...new Set(results.map(r => r.entity_type))].sort()
-  const filteredResults = results.filter(r => !disabledTypes.has(r.entity_type))
-
-  function toggleType(type) {
-    setDisabledTypes(prev => {
-      const next = new Set(prev)
-      if (next.has(type)) next.delete(type)
-      else next.add(type)
-      return next
-    })
-  }
+  const filteredResults = results.filter(r => !disabledIds.has(resultKey(r)))
 
   function highlightText() {
     if (!text || !results.length) return text
@@ -241,14 +257,21 @@ export default function App() {
                     {textResults.length > 0 && !textRedacted ? (
                       <div className="text-input text-highlight-preview">
                         {(() => {
-                          const filtered = textResults.filter(r => !disabledTypes.has(r.entity_type))
-                          const sorted = [...filtered].sort((a, b) => a.start - b.start)
+                          const sorted = [...textResults].sort((a, b) => a.start - b.start)
                           const parts = []
                           let prev = 0
                           for (const r of sorted) {
+                            const disabled = disabledIds.has(resultKey(r))
                             if (r.start > prev) parts.push(<span key={`t${prev}`}>{inputText.slice(prev, r.start)}</span>)
                             parts.push(
-                              <mark key={`m${r.start}`} title={r.entity_type} className="highlight">{inputText.slice(r.start, r.end)}</mark>
+                              <mark
+                                key={`m${r.start}`}
+                                title={`${r.entity_type} - click to ${disabled ? 'include' : 'exclude'}`}
+                                className={disabled ? 'highlight highlight-disabled' : 'highlight'}
+                                onClick={() => toggleInstance(r)}
+                              >
+                                {inputText.slice(r.start, r.end)}
+                              </mark>
                             )
                             prev = r.end
                           }
@@ -272,8 +295,8 @@ export default function App() {
                             <span className="entity-label">{type} ({textResults.filter(r => r.entity_type === type).length})</span>
                             <input
                               type="checkbox"
-                              checked={!disabledTypes.has(type)}
-                              onChange={() => toggleType(type)}
+                              checked={textResults.filter(r => r.entity_type === type).every(r => !disabledIds.has(resultKey(r)))}
+                              onChange={() => toggleType(type, textResults)}
                             />
                           </label>
                         ))}
@@ -304,7 +327,7 @@ export default function App() {
       {results.length > 0 && (
         <div className="results-view">
           <div className="results-toolbar">
-            <button className="btn btn-secondary" onClick={() => { if (abortRef.current) abortRef.current.abort(); setLoading(false); setResults([]); setText(''); setFile(null); setInputText(''); setDisabledTypes(new Set()) }}>
+            <button className="btn btn-secondary" onClick={() => { if (abortRef.current) abortRef.current.abort(); setLoading(false); setResults([]); setText(''); setFile(null); setInputText(''); setDisabledIds(new Set()) }}>
               Back
             </button>
             {file && (
@@ -336,15 +359,21 @@ export default function App() {
                         }
                         const pageStart = text.indexOf(pageText)
                         const pageEnd = pageStart + pageText.length
-                        const pageResults = filteredResults.filter(r => r.start >= pageStart && r.end <= pageEnd)
+                        const pageResults = results.filter(r => r.start >= pageStart && r.end <= pageEnd)
                         if (!pageResults.length) return <span>{pageText}</span>
                         const sorted = [...pageResults].sort((a, b) => a.start - b.start)
                         const parts = []
                         let prev = pageStart
                         for (const r of sorted) {
+                          const disabled = disabledIds.has(resultKey(r))
                           if (r.start > prev) parts.push(<span key={`t${prev}`}>{text.slice(prev, r.start)}</span>)
                           parts.push(
-                            <mark key={`m${r.start}`} title={`${r.entity_type} (${r.score})`} className="highlight">
+                            <mark
+                              key={`m${r.start}`}
+                              title={`${r.entity_type} (${r.score}) - click to ${disabled ? 'include' : 'exclude'}`}
+                              className={disabled ? 'highlight highlight-disabled' : 'highlight'}
+                              onClick={() => toggleInstance(r)}
+                            >
                               {text.slice(r.start, r.end)}
                             </mark>
                           )
@@ -366,8 +395,8 @@ export default function App() {
                     <span className="entity-label">{type} ({results.filter(r => r.entity_type === type).length})</span>
                     <input
                       type="checkbox"
-                      checked={!disabledTypes.has(type)}
-                      onChange={() => toggleType(type)}
+                      checked={results.filter(r => r.entity_type === type).every(r => !disabledIds.has(resultKey(r)))}
+                      onChange={() => toggleType(type, results)}
                     />
                   </label>
                 ))}
