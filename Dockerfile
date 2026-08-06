@@ -1,7 +1,7 @@
 FROM node:20-slim AS frontend
 WORKDIR /app/client
 COPY client/package.json client/package-lock.json ./
-RUN npm ci
+RUN --mount=type=cache,target=/root/.npm npm ci
 COPY client/ ./
 RUN npm run build
 
@@ -14,7 +14,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 COPY api/requirements.txt ./
-RUN pip install --no-cache-dir -r requirements.txt
+RUN --mount=type=cache,target=/root/.cache/pip pip install -r requirements.txt
 RUN python -c "from presidio_analyzer.nlp_engine import TransformersNlpEngine; \
     e = TransformersNlpEngine(models=[{'lang_code': 'en', 'model_name': {'spacy': 'en_core_web_sm', 'transformers': 'StanfordAIMI/stanford-deidentifier-base'}}]); \
     e.load()"
