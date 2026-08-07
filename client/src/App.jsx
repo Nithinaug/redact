@@ -289,6 +289,10 @@ export default function App() {
       const res = await fetch(`${API}/analyze-file`, { method: 'POST', body: form })
       if (!res.ok) throw new Error((await res.json()).detail || res.statusText)
       const data = await res.json()
+      if (!data.results.length) {
+        setError('No PII detected in this file.')
+        return
+      }
       setText(data.text)
       setResults(data.results)
     } catch (e) {
