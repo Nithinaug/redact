@@ -14,15 +14,31 @@ export default function App() {
   const [mode, setMode] = useState('file')
   const [disabledIds, setDisabledIds] = useState(new Set())
   const fileRef = useRef()
+  const addFileRef = useRef()
   const textRef = useRef()
   const abortRef = useRef(null)
 
+  const MAX_FILE_SIZE = 25 * 1024 * 1024
+  const MAX_BATCH_COUNT = 50
+
   const isZip = file && file.name.toLowerCase().endsWith('.zip')
+
+  function validateBatch(arr) {
+    if (arr.length > MAX_BATCH_COUNT) {
+      setError(`Too many files. Maximum is ${MAX_BATCH_COUNT} per batch.`)
+      return false
+    }
+    const oversized = arr.find(f => f.size > MAX_FILE_SIZE)
+    if (oversized) {
+      setError(`"${oversized.name}" is too large. Maximum size is 25MB per file.`)
+      return false
+    }
+    return true
+  }
 
   function handleFile(f) {
     if (!f) return
-    const maxSize = 25 * 1024 * 1024
-    if (f.size > maxSize) {
+    if (f.size > MAX_FILE_SIZE) {
       setError('File too large. Maximum size is 25MB.')
       return
     }
@@ -38,60 +54,148 @@ export default function App() {
       handleFile(arr[0])
       return
     }
-    const maxSize = 25 * 1024 * 1024
-    const maxCount = 50
-    if (arr.length > maxCount) {
-      setError(`Too many files. Maximum is ${maxCount} per batch.`)
-      return
-    }
-    const oversized = arr.find(f => f.size > maxSize)
-    if (oversized) {
-      setError(`"${oversized.name}" is too large. Maximum size is 25MB per file.`)
-      return
-    }
+    if (!validateBatch(arr)) return
     setFile(null)
     setBatchFiles(arr)
     setError('')
   }
 
-  async function handleRedactBatch() {
+  function handleAddFiles(fileList) {
+    const arr = Array.from(fileList || [])
+    if (!arr.length) return
+    const combined = [...(file ? [file] : []), ...arr]
+    if (!validateBatch(combined)) return
+    setFile(null)
+    setBatchFiles(combined)
+    setError('')
+  }
+
+  const [reviewFiles, setReviewFiles] = useState([])
+  const [reviewMode, setReviewMode] = useState(null)
+  const [zipErrors, setZipErrors] = useState([])
+
+  async function handleAnalyzeBatch() {
     if (!batchFiles.length) return
     setLoading(true)
     setError('')
     const failures = []
-    try {
-      await Promise.all(batchFiles.map(async (f) => {
-        try {
-          const form = new FormData()
-          form.append('file', f)
-          const res = await fetch(`${API}/redact-file`, { method: 'POST', body: form })
-          if (!res.ok) throw new Error((await res.json()).detail || res.statusText)
-          const blob = await res.blob()
-          const url = URL.createObjectURL(blob)
-          const a = document.createElement('a')
-          a.href = url
-          a.download = `redacted_${f.name}`
-          a.click()
-          URL.revokeObjectURL(url)
-        } catch (e) {
-          failures.push(`${f.name}: ${e.message}`)
-        }
-      }))
-      if (failures.length) setError(`${failures.length} file(s) failed: ${failures.join('; ')}`)
-      setBatchFiles([])
-    } finally {
-      setLoading(false)
+    const analyzed = []
+    await Promise.all(batchFiles.map(async (f) => {
+      try {
+        const form = new FormData()
+        form.append('file', f)
+        const res = await fetch(`${API}/analyze-file`, { method: 'POST', body: form })
+        if (!res.ok) throw new Error((await res.json()).detail || res.statusText)
+        const data = await res.json()
+        analyzed.push({ name: f.name, text: data.text, results: data.results, disabledIds: new Set() })
+      } catch (e) {
+        failures.push(`${f.name}: ${e.message}`)
+      }
+    }))
+    setLoading(false)
+    if (failures.length) setError(`${failures.length} file(s) failed to analyze: ${failures.join('; ')}`)
+    if (analyzed.length) {
+      setReviewFiles(analyzed)
+      setReviewMode('batch')
     }
   }
 
-  async function handleRedactZip() {
+  async function handleAnalyzeZip() {
     if (!file) return
     setLoading(true)
     setError('')
     try {
       const form = new FormData()
       form.append('file', file)
-      const res = await fetch(`${API}/redact-file`, { method: 'POST', body: form })
+      const res = await fetch(`${API}/analyze-zip`, { method: 'POST', body: form })
+      if (!res.ok) throw new Error((await res.json()).detail || res.statusText)
+      const data = await res.json()
+      setReviewFiles(data.files.map(f => ({ name: f.name, text: f.text, results: f.results, disabledIds: new Set() })))
+      setZipErrors(data.errors || [])
+      setReviewMode('zip')
+    } catch (e) {
+      setError(e.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  function toggleReviewInstance(fileIdx, r) {
+    setReviewFiles(prev => prev.map((rf, i) => {
+      if (i !== fileIdx) return rf
+      const next = new Set(rf.disabledIds)
+      const key = resultKey(r)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return { ...rf, disabledIds: next }
+    }))
+  }
+
+  function toggleReviewType(fileIdx, type) {
+    setReviewFiles(prev => prev.map((rf, i) => {
+      if (i !== fileIdx) return rf
+      const ofType = rf.results.filter(r => r.entity_type === type)
+      const allEnabled = ofType.every(r => !rf.disabledIds.has(resultKey(r)))
+      const next = new Set(rf.disabledIds)
+      for (const r of ofType) {
+        if (allEnabled) next.add(resultKey(r))
+        else next.delete(resultKey(r))
+      }
+      return { ...rf, disabledIds: next }
+    }))
+  }
+
+  function handleReviewBack() {
+    setReviewFiles([])
+    setReviewMode(null)
+    setZipErrors([])
+  }
+
+  async function handleRedactReviewBatch() {
+    setLoading(true)
+    setError('')
+    const failures = []
+    await Promise.all(reviewFiles.map(async (rf) => {
+      try {
+        const originalFile = batchFiles.find(f => f.name === rf.name)
+        if (!originalFile) throw new Error('original file not found')
+        const filtered = rf.results.filter(r => !rf.disabledIds.has(resultKey(r)))
+        const form = new FormData()
+        form.append('file', originalFile)
+        form.append('results', JSON.stringify(filtered))
+        const res = await fetch(`${API}/redact-file`, { method: 'POST', body: form })
+        if (!res.ok) throw new Error((await res.json()).detail || res.statusText)
+        const blob = await res.blob()
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = `redacted_${rf.name}`
+        a.click()
+        URL.revokeObjectURL(url)
+      } catch (e) {
+        failures.push(`${rf.name}: ${e.message}`)
+      }
+    }))
+    setLoading(false)
+    if (failures.length) setError(`${failures.length} file(s) failed: ${failures.join('; ')}`)
+    setReviewFiles([])
+    setReviewMode(null)
+    setBatchFiles([])
+  }
+
+  async function handleRedactReviewZip() {
+    if (!file) return
+    setLoading(true)
+    setError('')
+    try {
+      const resultsMap = {}
+      for (const rf of reviewFiles) {
+        resultsMap[rf.name] = rf.results.filter(r => !rf.disabledIds.has(resultKey(r)))
+      }
+      const form = new FormData()
+      form.append('file', file)
+      form.append('results', JSON.stringify(resultsMap))
+      const res = await fetch(`${API}/redact-zip`, { method: 'POST', body: form })
       if (!res.ok) throw new Error((await res.json()).detail || res.statusText)
       const blob = await res.blob()
       const url = URL.createObjectURL(blob)
@@ -101,6 +205,8 @@ export default function App() {
       a.click()
       URL.revokeObjectURL(url)
       setFile(null)
+      setReviewFiles([])
+      setReviewMode(null)
     } catch (e) {
       setError(e.message)
     } finally {
@@ -237,7 +343,7 @@ export default function App() {
 
   return (
     <div className="app">
-      {!results.length && (
+      {!results.length && !reviewFiles.length && (
         <div className="top-section">
           <div className="hero">
             <div className="page-header">
@@ -269,7 +375,7 @@ export default function App() {
                     {!file && !batchFiles.length ? (
                       <>
                         <div className="dropzone-icon"><svg width="72" height="72" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg></div>
-                        <p className="dropzone-hint">PDF, DOCX, XLSX, CSV, JPG, PNG, ZIP — up to 25MB. Select multiple files or a ZIP to redact as a batch.</p>
+                        <p className="dropzone-hint">PDF, DOCX, XLSX, CSV, JPG, PNG, ZIP — up to 25MB.</p>
                       </>
                     ) : file ? (
                       <div className="file-ready">
@@ -277,14 +383,25 @@ export default function App() {
                         <p className="file-ready-size">{file.size < 1024 ? file.size + ' B' : file.size < 1024 * 1024 ? (file.size / 1024).toFixed(1) + ' KB' : (file.size / (1024 * 1024)).toFixed(2) + ' MB'}</p>
                         <div className="file-ready-actions">
                           {isZip ? (
-                            <button className="btn btn-primary" onClick={(e) => { e.stopPropagation(); handleRedactZip() }} disabled={loading}>
-                              {loading ? 'Redacting...' : 'Redact Zip'}
+                            <button className="btn btn-primary" onClick={(e) => { e.stopPropagation(); handleAnalyzeZip() }} disabled={loading}>
+                              {loading ? 'Analyzing...' : 'Analyze Zip'}
                             </button>
                           ) : (
-                            <button className="btn btn-primary" onClick={(e) => { e.stopPropagation(); handleAnalyzeFile(file) }}>Analyze</button>
+                            <>
+                              <button className="btn btn-primary" onClick={(e) => { e.stopPropagation(); handleAnalyzeFile(file) }}>Analyze</button>
+                              <button className="btn btn-secondary" onClick={(e) => { e.stopPropagation(); addFileRef.current?.click() }}>Add File</button>
+                            </>
                           )}
                           <button className="btn btn-secondary" onClick={(e) => { e.stopPropagation(); setFile(null) }}>Cancel</button>
                         </div>
+                        <input
+                          ref={addFileRef}
+                          type="file"
+                          multiple
+                          accept=".pdf,.docx,.xlsx,.csv,.txt,.json,.jpg,.jpeg,.png,.tiff,.tif,.bmp"
+                          onChange={e => { handleAddFiles(e.target.files); e.target.value = '' }}
+                          hidden
+                        />
                       </div>
                     ) : (
                       <div className="file-ready">
@@ -295,8 +412,8 @@ export default function App() {
                           ))}
                         </ul>
                         <div className="file-ready-actions">
-                          <button className="btn btn-primary" onClick={(e) => { e.stopPropagation(); handleRedactBatch() }} disabled={loading}>
-                            {loading ? 'Redacting...' : `Redact All (${batchFiles.length})`}
+                          <button className="btn btn-primary" onClick={(e) => { e.stopPropagation(); handleAnalyzeBatch() }} disabled={loading}>
+                            {loading ? 'Analyzing...' : `Analyze All (${batchFiles.length})`}
                           </button>
                           <button className="btn btn-secondary" onClick={(e) => { e.stopPropagation(); setBatchFiles([]) }}>Cancel</button>
                         </div>
@@ -461,6 +578,82 @@ export default function App() {
                 ))}
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {reviewFiles.length > 0 && (
+        <div className="results-view">
+          <div className="results-toolbar">
+            <button className="btn btn-secondary" onClick={handleReviewBack} disabled={loading}>
+              Back
+            </button>
+            <button
+              className="btn btn-primary"
+              onClick={reviewMode === 'zip' ? handleRedactReviewZip : handleRedactReviewBatch}
+              disabled={loading}
+            >
+              {loading ? 'Redacting...' : `Redact All (${reviewFiles.length})`}
+            </button>
+          </div>
+          {zipErrors.length > 0 && (
+            <div className="batch-errors">
+              {zipErrors.map((e, i) => <p key={i}>{e.name}: {e.error}</p>)}
+            </div>
+          )}
+          <div className="review-file-list">
+            {reviewFiles.map((rf, idx) => {
+              const entityTypesForFile = [...new Set(rf.results.map(r => r.entity_type))].sort()
+              return (
+                <div className="review-file" key={rf.name}>
+                  <div className="review-file-header">
+                    <span className="review-file-name">{rf.name}</span>
+                    <span className="review-file-count">{rf.results.length} detected</span>
+                  </div>
+                  <div className="review-file-body">
+                    <div className="review-file-text">
+                      {(() => {
+                        if (!rf.results.length) return <span>{rf.text}</span>
+                        const sorted = [...rf.results].sort((a, b) => a.start - b.start)
+                        const parts = []
+                        let prev = 0
+                        for (const r of sorted) {
+                          const disabled = rf.disabledIds.has(resultKey(r))
+                          if (r.start > prev) parts.push(<span key={`t${prev}`}>{rf.text.slice(prev, r.start)}</span>)
+                          parts.push(
+                            <mark
+                              key={`m${r.start}`}
+                              title={`${r.entity_type} (${r.score}) - click to ${disabled ? 'include' : 'exclude'}`}
+                              className={disabled ? 'highlight highlight-disabled' : 'highlight'}
+                              onClick={() => toggleReviewInstance(idx, r)}
+                            >
+                              {rf.text.slice(r.start, r.end)}
+                            </mark>
+                          )
+                          prev = r.end
+                        }
+                        if (prev < rf.text.length) parts.push(<span key="end">{rf.text.slice(prev)}</span>)
+                        return parts
+                      })()}
+                    </div>
+                    {entityTypesForFile.length > 0 && (
+                      <div className="review-file-toggles">
+                        {entityTypesForFile.map(type => (
+                          <label key={type} className="entity-toggle">
+                            <span className="entity-label">{type} ({rf.results.filter(r => r.entity_type === type).length})</span>
+                            <input
+                              type="checkbox"
+                              checked={rf.results.filter(r => r.entity_type === type).every(r => !rf.disabledIds.has(resultKey(r)))}
+                              onChange={() => toggleReviewType(idx, type)}
+                            />
+                          </label>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )
+            })}
           </div>
         </div>
       )}

@@ -84,14 +84,6 @@ def anonymize(req: TextRequest):
 @app.post("/redact-file")
 async def redact_file_endpoint(request: Request, file: UploadFile = File(...), results: Optional[str] = Form(None)):
     data = await _read_upload(file)
-
-    if extension_of(file.filename) == ".zip":
-        try:
-            out = await _redact_zip(data)
-        except ValueError as e:
-            raise HTTPException(400, str(e))
-        return StreamingResponse(io.BytesIO(out), media_type="application/zip", headers={"Content-Disposition": f'attachment; filename="redacted_{file.filename}"'})
-
     try:
         text = await run_in_threadpool(extract_text, file.filename, data)
     except ValueError as e:
@@ -123,31 +115,72 @@ async def _redact_one(filename, data, text, result_dicts):
     return await run_in_threadpool(redact_file, filename, data, text, result_dicts)
 
 
-async def _redact_zip_entry(name, data):
-    try:
-        text = await run_in_threadpool(extract_text, name, data)
-        result_dicts = _to_dicts(await run_in_threadpool(analyze_text, text))
-        out, _ = await _redact_one(name, data, text, result_dicts)
-        return name, out, None
-    except HTTPException as e:
-        return name, None, e.detail
-    except Exception as e:
-        return name, None, str(e)
-
-
-async def _redact_zip(data: bytes) -> bytes:
+def _open_zip(data: bytes):
     try:
         in_zip = zipfile.ZipFile(io.BytesIO(data))
     except zipfile.BadZipFile:
         raise ValueError("not a valid zip file")
-
     entries = [n for n in in_zip.namelist() if not n.endswith("/") and not n.startswith("__MACOSX")]
     if not entries:
         raise ValueError("zip file is empty")
     if len(entries) > MAX_ZIP_ENTRIES:
         raise ValueError(f"too many files in zip (max {MAX_ZIP_ENTRIES})")
+    return in_zip, entries
 
-    outcomes = await asyncio.gather(*(_redact_zip_entry(name, in_zip.read(name)) for name in entries))
+
+async def _analyze_zip_entry(name, data):
+    try:
+        text = await run_in_threadpool(extract_text, name, data)
+        results = _to_dicts(await run_in_threadpool(analyze_text, text))
+        return name, text, results, None
+    except HTTPException as e:
+        return name, None, None, e.detail
+    except Exception as e:
+        return name, None, None, str(e)
+
+
+@app.post("/analyze-zip")
+async def analyze_zip_endpoint(file: UploadFile = File(...)):
+    data = await _read_upload(file)
+    try:
+        in_zip, entries = _open_zip(data)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+    outcomes = await asyncio.gather(*(_analyze_zip_entry(name, in_zip.read(name)) for name in entries))
+    files, errors = [], []
+    for name, text, results, err in outcomes:
+        if err:
+            errors.append({"name": name, "error": err})
+        else:
+            files.append({"name": name, "text": text, "results": results})
+    return {"files": files, "errors": errors}
+
+
+@app.post("/redact-zip")
+async def redact_zip_endpoint(file: UploadFile = File(...), results: str = Form(...)):
+    data = await _read_upload(file)
+    try:
+        in_zip, entries = _open_zip(data)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    try:
+        results_map = json.loads(results)
+    except (ValueError, TypeError):
+        raise HTTPException(400, "results must be a JSON object")
+
+    async def handle(name):
+        try:
+            entry_data = in_zip.read(name)
+            text = await run_in_threadpool(extract_text, name, entry_data)
+            out, _ = await _redact_one(name, entry_data, text, results_map.get(name, []))
+            return name, out, None
+        except HTTPException as e:
+            return name, None, e.detail
+        except Exception as e:
+            return name, None, str(e)
+
+    outcomes = await asyncio.gather(*(handle(name) for name in entries))
 
     out_buf = io.BytesIO()
     errors = []
@@ -162,7 +195,7 @@ async def _redact_zip(data: bytes) -> bytes:
         if errors:
             out_zip.writestr("_errors.txt", "\n".join(errors))
     out_buf.seek(0)
-    return out_buf.getvalue()
+    return StreamingResponse(out_buf, media_type="application/zip", headers={"Content-Disposition": f'attachment; filename="redacted_{file.filename}"'})
 
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
