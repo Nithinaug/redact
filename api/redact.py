@@ -1,7 +1,7 @@
 import csv
 import io
 
-import fitz
+import pymupdf
 import openpyxl
 from docx import Document
 from PIL import Image
@@ -170,7 +170,7 @@ def _redact_pdf(data, text, results):
     everywhere they appear on the page, same as before. Ambiguous short matches are
     mapped to their exact character offset and redacted only at that occurrence, to
     avoid blacking out unrelated text that happens to match the same short string."""
-    with fitz.open(stream=data, filetype="pdf") as doc:
+    with pymupdf.open(stream=data, filetype="pdf") as doc:
         page_texts = [doc[i].get_text() for i in range(len(doc))]
         page_offsets = []
         pos = 0
@@ -219,7 +219,7 @@ def _redact_pdf(data, text, results):
                     else:
                         for rect in rects:
                             page.add_redact_annot(rect, text="", fill=(0, 0, 0))
-            page.apply_redactions(images=fitz.PDF_REDACT_IMAGE_NONE)
+            page.apply_redactions(images=pymupdf.PDF_REDACT_IMAGE_NONE)
         out = io.BytesIO()
         doc.save(out, garbage=4, deflate=True, clean=True)
     return out.getvalue()

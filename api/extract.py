@@ -2,7 +2,7 @@ import csv
 import io
 import os
 
-import fitz
+import pymupdf
 import openpyxl
 import pytesseract
 from docx import Document
@@ -39,7 +39,7 @@ def _extract_csv(data: bytes) -> str:
 
 def _extract_pdf(data: bytes) -> str:
     parts = []
-    with fitz.open(stream=data, filetype="pdf") as doc:
+    with pymupdf.open(stream=data, filetype="pdf") as doc:
         for page in doc:
             parts.append(page.get_text())
     text = "\n".join(parts)
