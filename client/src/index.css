@@ -256,6 +256,22 @@ h3 {
   margin-top: 12px;
 }
 
+.batch-file-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 160px;
+  overflow-y: auto;
+  font-size: 13px;
+  color: var(--text-h);
+  text-align: left;
+}
+
+.batch-file-list li {
+  padding: 4px 0;
+  border-bottom: 1px solid var(--border);
+}
+
 .loading-text {
   font-size: 14px;
   color: var(--text);

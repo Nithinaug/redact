@@ -6,7 +6,7 @@ import openpyxl
 from docx import Document
 from PIL import Image
 
-from .extract import extension_of, IMAGE_EXTS
+from .extract import extension_of
 from .presidio import get_image_redactor
 
 TYPES = {
@@ -26,42 +26,37 @@ TYPES = {
 
 
 def _is_specific(original):
-    """Longer/multi-word matches (full names, emails, account numbers) are unlikely
-    to coincidentally match unrelated text, so every occurrence is treated as PII.
-    Short or single-token matches (bare digits, short words) are ambiguous - e.g.
-    "May" the name vs. the month - so those are redacted only at their detected
-    positions, not everywhere the string appears."""
     t = original.strip()
     return len(t) >= 6 or " " in t
 
 
 def build_redaction_pairs_from_dicts(text, results, split_tokens=False):
-    """Returns (original, replacement, budget) triples. budget is None for
-    high-specificity matches (redact every occurrence), or an int count for
-    ambiguous matches (redact only that many occurrences - a positional budget)."""
     counts, order = {}, []
     for r in sorted(results, key=lambda r: (r["end"] - r["start"], r.get("score", 0)), reverse=True):
         start, end = r["start"], r["end"]
         if start < 0 or end > len(text) or start >= end:
             continue
         original = text[start:end]
-        if not original.strip() or len(original.strip()) < 3:
-            continue
-        replacement = f"<{r['entity_type']}>"
-        key = (original, replacement)
-        if key not in counts:
-            counts[key] = 0
-            order.append(key)
-        counts[key] += 1
-        if split_tokens:
-            for token in original.split():
-                if not token.strip():
-                    continue
-                tkey = (token, replacement)
-                if tkey not in counts:
-                    counts[tkey] = 0
-                    order.append(tkey)
-                counts[tkey] += 1
+        fragments = original.split("\n\n") if "\n\n" in original else [original]
+        for fragment in fragments:
+            if not fragment.strip() or len(fragment.strip()) < 3:
+                continue
+            entity_type = "EMAIL_ADDRESS" if "@" in fragment and " " not in fragment.strip() else r["entity_type"]
+            replacement = f"<{entity_type}>"
+            key = (fragment, replacement)
+            if key not in counts:
+                counts[key] = 0
+                order.append(key)
+            counts[key] += 1
+            if split_tokens:
+                for token in fragment.split():
+                    if not token.strip():
+                        continue
+                    tkey = (token, replacement)
+                    if tkey not in counts:
+                        counts[tkey] = 0
+                        order.append(tkey)
+                    counts[tkey] += 1
     pairs = []
     for original, replacement in order:
         budget = None if _is_specific(original) else counts[(original, replacement)]
@@ -166,17 +161,13 @@ def _redact_xlsx(data, pairs, remaining):
 
 
 def _redact_pdf(data, text, results):
-    """High-specificity matches (full names, emails, account numbers) are redacted
-    everywhere they appear on the page, same as before. Ambiguous short matches are
-    mapped to their exact character offset and redacted only at that occurrence, to
-    avoid blacking out unrelated text that happens to match the same short string."""
     with pymupdf.open(stream=data, filetype="pdf") as doc:
         page_texts = [doc[i].get_text() for i in range(len(doc))]
         page_offsets = []
         pos = 0
         for pt in page_texts:
             page_offsets.append(pos)
-            pos += len(pt) + 1  # +1 accounts for the "\n" join in extract_text
+            pos += len(pt) + 1
 
         page_spans = {}
         for r in results:

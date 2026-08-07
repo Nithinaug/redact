@@ -17,24 +17,29 @@ def extension_of(filename: str) -> str:
 
 def extract_text(filename: str, data: bytes) -> str:
     ext = extension_of(filename)
-    if ext in (".txt", ".json"):
-        return data.decode("utf-8", errors="replace")
-    if ext == ".csv":
-        return _extract_csv(data)
-    if ext == ".pdf":
-        return _extract_pdf(data)
-    if ext == ".docx":
-        return _extract_docx(data)
-    if ext == ".xlsx":
-        return _extract_xlsx(data)
-    if ext in IMAGE_EXTS:
+    if ext not in (".txt", ".json", ".csv", ".pdf", ".docx", ".xlsx") and ext not in IMAGE_EXTS:
+        raise ValueError(f"unsupported file type: {ext}")
+    try:
+        if ext in (".txt", ".json"):
+            return data.decode("utf-8", errors="replace")
+        if ext == ".csv":
+            return _extract_csv(data)
+        if ext == ".pdf":
+            return _extract_pdf(data)
+        if ext == ".docx":
+            return _extract_docx(data)
+        if ext == ".xlsx":
+            return _extract_xlsx(data)
         return _extract_image(data)
-    raise ValueError(f"unsupported file type: {ext}")
+    except ValueError:
+        raise
+    except Exception as e:
+        raise ValueError(f"could not read {ext} file: {e}") from e
 
 
 def _extract_csv(data: bytes) -> str:
     reader = csv.reader(io.StringIO(data.decode("utf-8", errors="replace")))
-    return "\n".join(" ".join(row) for row in reader)
+    return "\n".join("\n\n".join(row) for row in reader)
 
 
 def _extract_pdf(data: bytes) -> str:
@@ -53,7 +58,7 @@ def _extract_docx(data: bytes) -> str:
     lines = [p.text for p in doc.paragraphs]
     for table in doc.tables:
         for row in table.rows:
-            lines.append(" ".join(cell.text for cell in row.cells))
+            lines.append("\n\n".join(cell.text for cell in row.cells))
     return "\n".join(lines)
 
 
@@ -64,7 +69,7 @@ def _extract_xlsx(data: bytes) -> str:
         for row in ws.iter_rows(values_only=True):
             cells = [str(c) for c in row if c is not None]
             if cells:
-                lines.append(" ".join(cells))
+                lines.append("\n\n".join(cells))
     wb.close()
     return "\n".join(lines)
 

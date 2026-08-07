@@ -32,6 +32,9 @@ _BANK_CONTEXT = re.compile(
 
 _PHONE_CONTEXT = re.compile(r"\b(?:phone|mobile|contact|call|tel|hp|fax)\b", re.IGNORECASE)
 
+_AADHAAR_CONTEXT = re.compile(r"\b(?:aadhaar|aadhar|UID|unique identification)\b", re.IGNORECASE)
+_AADHAAR_SHAPE = re.compile(r"^\d{4}\s?\d{4}\s?\d{4}$")
+
 _ORG_WORDS = re.compile(
     r"\b(?:Bank|Chase|Morgan|Goldman|Sachs|Merrill|Lynch|Barclays|Citibank|HSBC|"
     r"UBS|Credit\s+Suisse|Deutsche|JPMorgan|Standard\s+Chartered|"
@@ -89,9 +92,39 @@ def build_custom_recognizers():
             supported_entity="ORGANIZATION",
             patterns=[Pattern(
                 "company_suffix",
-                r"(?-i)(?:[A-Z][a-z]+\s){1,6}(?:Pte\.?\s*Ltd\.?|Pvt\.?\s*Ltd\.?|Sdn\.?\s*Bhd\.?|Ltd\.?|Limited|Inc\.?|Corp\.?|Corporation|LLC|LLP|GmbH|Berhad|PLC)\b",
+                r"(?-i)(?:[A-Z][a-z]+\s){1,6}(?:Pte\.?\s*Ltd\.?|Pvt\.?\s*Ltd\.?|Sdn\.?\s*Bhd\.?|Ltd\.?|Limited|Inc\.?|Corp\.?|Corporation|LLC|LLP|GmbH|Berhad|PLC|&\s*Co\.?|and\s+Associates|Chartered\s+Accountants)\b",
                 0.85,
             )],
+        ),
+        PatternRecognizer(
+            supported_entity="PAN",
+            patterns=[Pattern("pan_in", r"\b[A-Z]{5}[0-9]{4}[A-Z]\b", 0.7)],
+            context=["PAN", "permanent account number", "income tax", "IT return", "assessee"],
+        ),
+        PatternRecognizer(
+            supported_entity="AADHAAR",
+            patterns=[Pattern("aadhaar_in", r"\b\d{4}\s?\d{4}\s?\d{4}\b", 0.4)],
+            context=["aadhaar", "aadhar", "UID", "unique identification"],
+        ),
+        PatternRecognizer(
+            supported_entity="GSTIN",
+            patterns=[Pattern("gstin_in", r"\b\d{2}[A-Z]{5}\d{4}[A-Z]\d[Zz][A-Z\d]\b", 0.8)],
+            context=["GSTIN", "GST", "goods and services tax", "GST number", "GST registration"],
+        ),
+        PatternRecognizer(
+            supported_entity="IFSC_CODE",
+            patterns=[Pattern("ifsc_in", r"\b[A-Z]{4}0[A-Z0-9]{6}\b", 0.75)],
+            context=["IFSC", "branch code", "bank branch"],
+        ),
+        PatternRecognizer(
+            supported_entity="CIN",
+            patterns=[Pattern("cin_in", r"\b[LU][0-9]{5}[A-Z]{2}[0-9]{4}[A-Z]{3}[0-9]{6}\b", 0.8)],
+            context=["CIN", "corporate identification number", "company registration"],
+        ),
+        PatternRecognizer(
+            supported_entity="PHONE_NUMBER",
+            patterns=[Pattern("in_phone", r"\b(?:\+?91[\-\s]?)?[6-9]\d{9}\b", 0.5)],
+            context=["phone", "mobile", "contact", "call", "tel"],
         ),
     ]
 
@@ -102,6 +135,8 @@ def reclassify(r, text):
 
     if r.entity_type == "DATE_TIME" and not _DATE_PATTERN.search(matched):
         return None
+    if r.entity_type in ("ID", "PHONE_NUMBER") and _AADHAAR_SHAPE.match(matched.strip()) and _AADHAAR_CONTEXT.search(ctx_before):
+        return RecognizerResult("AADHAAR", r.start, r.end, r.score)
     if r.entity_type == "PHONE_NUMBER" and not re.search(r"[\d\s\-\+\(\)]{7,}", matched):
         return None
     if r.entity_type == "PHONE_NUMBER":

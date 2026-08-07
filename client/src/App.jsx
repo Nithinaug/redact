@@ -1,9 +1,10 @@
-import { useState, useRef, useCallback, useMemo } from 'react'
+import { useState, useRef, useCallback } from 'react'
 
 const API = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
 export default function App() {
   const [file, setFile] = useState(null)
+  const [batchFiles, setBatchFiles] = useState([])
   const [loading, setLoading] = useState(false)
   const [text, setText] = useState('')
   const [results, setResults] = useState([])
@@ -16,10 +17,7 @@ export default function App() {
   const textRef = useRef()
   const abortRef = useRef(null)
 
-  const fileUrl = useMemo(() => {
-    if (file) return URL.createObjectURL(file)
-    return null
-  }, [file])
+  const isZip = file && file.name.toLowerCase().endsWith('.zip')
 
   function handleFile(f) {
     if (!f) return
@@ -29,7 +27,85 @@ export default function App() {
       return
     }
     setFile(f)
+    setBatchFiles([])
     setError('')
+  }
+
+  function handleFiles(fileList) {
+    const arr = Array.from(fileList || [])
+    if (!arr.length) return
+    if (arr.length === 1) {
+      handleFile(arr[0])
+      return
+    }
+    const maxSize = 25 * 1024 * 1024
+    const maxCount = 50
+    if (arr.length > maxCount) {
+      setError(`Too many files. Maximum is ${maxCount} per batch.`)
+      return
+    }
+    const oversized = arr.find(f => f.size > maxSize)
+    if (oversized) {
+      setError(`"${oversized.name}" is too large. Maximum size is 25MB per file.`)
+      return
+    }
+    setFile(null)
+    setBatchFiles(arr)
+    setError('')
+  }
+
+  async function handleRedactBatch() {
+    if (!batchFiles.length) return
+    setLoading(true)
+    setError('')
+    const failures = []
+    try {
+      await Promise.all(batchFiles.map(async (f) => {
+        try {
+          const form = new FormData()
+          form.append('file', f)
+          const res = await fetch(`${API}/redact-file`, { method: 'POST', body: form })
+          if (!res.ok) throw new Error((await res.json()).detail || res.statusText)
+          const blob = await res.blob()
+          const url = URL.createObjectURL(blob)
+          const a = document.createElement('a')
+          a.href = url
+          a.download = `redacted_${f.name}`
+          a.click()
+          URL.revokeObjectURL(url)
+        } catch (e) {
+          failures.push(`${f.name}: ${e.message}`)
+        }
+      }))
+      if (failures.length) setError(`${failures.length} file(s) failed: ${failures.join('; ')}`)
+      setBatchFiles([])
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function handleRedactZip() {
+    if (!file) return
+    setLoading(true)
+    setError('')
+    try {
+      const form = new FormData()
+      form.append('file', file)
+      const res = await fetch(`${API}/redact-file`, { method: 'POST', body: form })
+      if (!res.ok) throw new Error((await res.json()).detail || res.statusText)
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `redacted_${file.name}`
+      a.click()
+      URL.revokeObjectURL(url)
+      setFile(null)
+    } catch (e) {
+      setError(e.message)
+    } finally {
+      setLoading(false)
+    }
   }
 
   const [textResults, setTextResults] = useState([])
@@ -127,29 +203,8 @@ export default function App() {
     e.preventDefault()
     e.stopPropagation()
     setDragActive(false)
-    if (e.dataTransfer.files?.[0]) handleFile(e.dataTransfer.files[0])
+    if (e.dataTransfer.files?.length) handleFiles(e.dataTransfer.files)
   }, [])
-
-  async function handleAnalyze() {
-    if (!file) return
-    setLoading(true)
-    setError('')
-    setText('')
-    setResults([])
-    try {
-      const form = new FormData()
-      form.append('file', file)
-      const res = await fetch(`${API}/analyze-file`, { method: 'POST', body: form })
-      if (!res.ok) throw new Error((await res.json()).detail || res.statusText)
-      const data = await res.json()
-      setText(data.text)
-      setResults(data.results)
-    } catch (e) {
-      setError(e.message)
-    } finally {
-      setLoading(false)
-    }
-  }
 
   async function handleRedact() {
     if (!file) return
@@ -180,24 +235,6 @@ export default function App() {
   const entityTypes = [...new Set(results.map(r => r.entity_type))].sort()
   const filteredResults = results.filter(r => !disabledIds.has(resultKey(r)))
 
-  function highlightText() {
-    if (!text || !results.length) return text
-    const sorted = [...results].sort((a, b) => a.start - b.start)
-    const parts = []
-    let prev = 0
-    for (const r of sorted) {
-      if (r.start > prev) parts.push(<span key={`t${prev}`}>{text.slice(prev, r.start)}</span>)
-      parts.push(
-        <mark key={`m${r.start}`} title={`${r.entity_type} (${r.score})`} className="highlight">
-          {text.slice(r.start, r.end)}
-        </mark>
-      )
-      prev = r.end
-    }
-    if (prev < text.length) parts.push(<span key="end">{text.slice(prev)}</span>)
-    return parts
-  }
-
   return (
     <div className="app">
       {!results.length && (
@@ -227,28 +264,50 @@ export default function App() {
                     onDragLeave={handleDrag}
                     onDragOver={handleDrag}
                     onDrop={handleDrop}
-                    onClick={() => !file && fileRef.current?.click()}
+                    onClick={() => !file && !batchFiles.length && fileRef.current?.click()}
                   >
-                    {!file ? (
+                    {!file && !batchFiles.length ? (
                       <>
                         <div className="dropzone-icon"><svg width="72" height="72" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg></div>
-                        <p className="dropzone-hint">PDF, DOCX, XLSX, CSV, JPG, PNG — up to 25MB</p>
+                        <p className="dropzone-hint">PDF, DOCX, XLSX, CSV, JPG, PNG, ZIP — up to 25MB. Select multiple files or a ZIP to redact as a batch.</p>
                       </>
-                    ) : (
+                    ) : file ? (
                       <div className="file-ready">
                         <p className="file-ready-name">{file.name}</p>
                         <p className="file-ready-size">{file.size < 1024 ? file.size + ' B' : file.size < 1024 * 1024 ? (file.size / 1024).toFixed(1) + ' KB' : (file.size / (1024 * 1024)).toFixed(2) + ' MB'}</p>
                         <div className="file-ready-actions">
-                          <button className="btn btn-primary" onClick={(e) => { e.stopPropagation(); handleAnalyzeFile(file) }}>Analyze</button>
+                          {isZip ? (
+                            <button className="btn btn-primary" onClick={(e) => { e.stopPropagation(); handleRedactZip() }} disabled={loading}>
+                              {loading ? 'Redacting...' : 'Redact Zip'}
+                            </button>
+                          ) : (
+                            <button className="btn btn-primary" onClick={(e) => { e.stopPropagation(); handleAnalyzeFile(file) }}>Analyze</button>
+                          )}
                           <button className="btn btn-secondary" onClick={(e) => { e.stopPropagation(); setFile(null) }}>Cancel</button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="file-ready">
+                        <p className="file-ready-name">{batchFiles.length} files selected</p>
+                        <ul className="batch-file-list">
+                          {batchFiles.map((f, i) => (
+                            <li key={i}>{f.name} <span className="file-ready-size">({f.size < 1024 * 1024 ? (f.size / 1024).toFixed(1) + ' KB' : (f.size / (1024 * 1024)).toFixed(2) + ' MB'})</span></li>
+                          ))}
+                        </ul>
+                        <div className="file-ready-actions">
+                          <button className="btn btn-primary" onClick={(e) => { e.stopPropagation(); handleRedactBatch() }} disabled={loading}>
+                            {loading ? 'Redacting...' : `Redact All (${batchFiles.length})`}
+                          </button>
+                          <button className="btn btn-secondary" onClick={(e) => { e.stopPropagation(); setBatchFiles([]) }}>Cancel</button>
                         </div>
                       </div>
                     )}
                     <input
                       ref={fileRef}
                       type="file"
-                      accept=".pdf,.docx,.xlsx,.csv,.txt,.json,.jpg,.jpeg,.png,.tiff,.tif,.bmp"
-                      onChange={e => handleFile(e.target.files[0])}
+                      multiple
+                      accept=".pdf,.docx,.xlsx,.csv,.txt,.json,.jpg,.jpeg,.png,.tiff,.tif,.bmp,.zip"
+                      onChange={e => handleFiles(e.target.files)}
                       hidden
                     />
                   </div>
