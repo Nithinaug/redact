@@ -14,6 +14,7 @@ from .id_validators import (
     pan_valid,
     passport_plausible,
     phone_plausible,
+    udin_valid,
     verhoeff_valid,
 )
 
@@ -66,6 +67,11 @@ class PlausiblePassportRecognizer(PatternRecognizer):
 class FiscalYearRecognizer(PatternRecognizer):
     def validate_result(self, pattern_text):
         return fiscal_year_valid(pattern_text)
+
+
+class UdinRecognizer(PatternRecognizer):
+    def validate_result(self, pattern_text):
+        return udin_valid(pattern_text)
 
 
 _DATE_PATTERN = re.compile(
@@ -151,11 +157,18 @@ def build_custom_recognizers():
         ),
         PatternRecognizer(
             supported_entity="ORGANIZATION",
-            patterns=[Pattern(
-                "company_suffix",
-                r"(?-i)(?:[A-Z][a-z]+\s){1,6}(?:Pte\.?\s*Ltd\.?|Pvt\.?\s*Ltd\.?|Sdn\.?\s*Bhd\.?|Ltd\.?|Limited|Inc\.?|Corp\.?|Corporation|LLC|LLP|GmbH|Berhad|PLC|&\s*Co\.?|and\s+Associates|Chartered\s+Accountants)\b",
-                0.85,
-            )],
+            patterns=[
+                Pattern(
+                    "company_suffix",
+                    r"(?-i)(?:[A-Z][a-z]+\s){1,6}(?:Pte\.?\s*Ltd\.?|Pvt\.?\s*Ltd\.?|Sdn\.?\s*Bhd\.?|Ltd\.?|Limited|Inc\.?|Corp\.?|Corporation|LLC|LLP|GmbH|Berhad|PLC|&\s*Co\.?|and\s+Associates|Chartered\s+Accountants)\b",
+                    0.85,
+                ),
+                Pattern(
+                    "ca_firm_name",
+                    r"(?-i)\b[A-Z][a-z]+\s*&\s*[A-Z][a-z]+,?\s+Chartered\s+Accountants\b",
+                    0.9,
+                ),
+            ],
         ),
         PanRecognizer(
             supported_entity="PAN",
@@ -195,6 +208,11 @@ def build_custom_recognizers():
                 0.6,
             )],
             context=["fiscal", "financial year", "assessment year", "FY", "AY"],
+        ),
+        UdinRecognizer(
+            supported_entity="UDIN",
+            patterns=[Pattern("udin_in", r"\b\d{8}[A-Z0-9]{10}\b", 0.6)],
+            context=["UDIN", "unique document identification number", "ICAI"],
         ),
         PatternRecognizer(
             supported_entity="ID",

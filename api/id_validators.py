@@ -127,6 +127,19 @@ def driver_license_valid(dl: str) -> bool:
     return dl[2:].isalnum()
 
 
+def udin_valid(udin: str) -> bool:
+    udin = udin.strip().upper()
+    if len(udin) != 18:
+        return False
+    if not udin[:8].isdigit():
+        return False
+    year = int(udin[:2])
+    current_year_suffix = datetime.date.today().year % 100
+    if not (19 <= year <= current_year_suffix):
+        return False
+    return udin[8:].isalnum()
+
+
 _NRIC_ST_TABLE = "JZIHGFEDCBA"
 _NRIC_FG_TABLE = "XWUTRQPNMLK"
 _NRIC_WEIGHTS = [2, 7, 6, 5, 4, 3, 2]
