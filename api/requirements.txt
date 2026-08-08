@@ -5,6 +5,7 @@ python-multipart
 pymupdf
 python-docx
 openpyxl
+pytesseract
 torch==2.13.0+cpu
 transformers
 accelerate
