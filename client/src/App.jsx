@@ -2,6 +2,12 @@ import { useState, useRef, useCallback } from 'react'
 
 const API = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
+function formatSize(bytes) {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(2)} MB`
+}
+
 export default function App() {
   const [file, setFile] = useState(null)
   const [batchFiles, setBatchFiles] = useState([])
@@ -13,10 +19,12 @@ export default function App() {
   const [inputText, setInputText] = useState('')
   const [mode, setMode] = useState('file')
   const [disabledIds, setDisabledIds] = useState(new Set())
+  const [manualSelection, setManualSelection] = useState(null)
   const fileRef = useRef()
   const addFileRef = useRef()
   const textRef = useRef()
   const abortRef = useRef(null)
+  const docPagesRef = useRef()
 
   const MAX_FILE_SIZE = 25 * 1024 * 1024
   const MAX_BATCH_COUNT = 50
@@ -252,6 +260,59 @@ export default function App() {
     })
   }
 
+  function textOffsetWithin(container, node, nodeOffset) {
+    const range = document.createRange()
+    range.selectNodeContents(container)
+    range.setEnd(node, nodeOffset)
+    return range.toString().length
+  }
+
+  function resolveManualSelection(scopeContainer, scopeAttr, offsetAttrToInt) {
+    const sel = window.getSelection()
+    if (!sel || sel.isCollapsed || sel.rangeCount === 0 || !scopeContainer) return null
+    const range = sel.getRangeAt(0)
+    if (!scopeContainer.contains(range.commonAncestorContainer)) return null
+    const startScope = (range.startContainer.nodeType === 3 ? range.startContainer.parentElement : range.startContainer).closest(`[${scopeAttr}]`)
+    const endScope = (range.endContainer.nodeType === 3 ? range.endContainer.parentElement : range.endContainer).closest(`[${scopeAttr}]`)
+    if (!startScope || !endScope || startScope !== endScope) return null
+    const marks = startScope.querySelectorAll('mark')
+    for (const m of marks) {
+      if (range.intersectsNode(m)) return null
+    }
+    const offsetBase = offsetAttrToInt(startScope)
+    const start = offsetBase + textOffsetWithin(startScope, range.startContainer, range.startOffset)
+    const end = offsetBase + textOffsetWithin(startScope, range.endContainer, range.endOffset)
+    if (end <= start) return null
+    const rect = range.getBoundingClientRect()
+    return { start, end, x: rect.left + rect.width / 2, y: rect.top, scope: startScope }
+  }
+
+  function handleDocMouseUp() {
+    const result = resolveManualSelection(docPagesRef.current, 'data-page-start', el => parseInt(el.dataset.pageStart, 10))
+    if (!result) { setManualSelection(null); return }
+    const { scope, ...rest } = result
+    setManualSelection({ ...rest, fileIdx: null })
+  }
+
+  function handleReviewMouseUp(e) {
+    const result = resolveManualSelection(e.currentTarget, 'data-file-idx', () => 0)
+    if (!result) { setManualSelection(null); return }
+    const { scope, ...rest } = result
+    setManualSelection({ ...rest, fileIdx: parseInt(scope.dataset.fileIdx, 10) })
+  }
+
+  function confirmManualSelection() {
+    if (!manualSelection) return
+    const entry = { start: manualSelection.start, end: manualSelection.end, entity_type: 'CUSTOM', score: 1.0 }
+    if (manualSelection.fileIdx == null) {
+      setResults(prev => [...prev, entry])
+    } else {
+      setReviewFiles(prev => prev.map((rf, i) => i !== manualSelection.fileIdx ? rf : { ...rf, results: [...rf.results, entry] }))
+    }
+    setManualSelection(null)
+    window.getSelection().removeAllRanges()
+  }
+
   function toggleType(type, activeResults) {
     const ofType = activeResults.filter(r => r.entity_type === type)
     const allEnabled = ofType.every(r => !disabledIds.has(resultKey(r)))
@@ -384,7 +445,7 @@ export default function App() {
                     ) : file ? (
                       <div className="file-ready">
                         <p className="file-ready-name">{file.name}</p>
-                        <p className="file-ready-size">{file.size < 1024 ? file.size + ' B' : file.size < 1024 * 1024 ? (file.size / 1024).toFixed(1) + ' KB' : (file.size / (1024 * 1024)).toFixed(2) + ' MB'}</p>
+                        <p className="file-ready-size">{formatSize(file.size)}</p>
                         <div className="file-ready-actions">
                           {isZip ? (
                             <button className="btn btn-primary" onClick={(e) => { e.stopPropagation(); handleAnalyzeZip() }} disabled={loading}>
@@ -412,7 +473,7 @@ export default function App() {
                         <p className="file-ready-name">{batchFiles.length} files selected</p>
                         <ul className="batch-file-list">
                           {batchFiles.map((f, i) => (
-                            <li key={i}>{f.name} <span className="file-ready-size">({f.size < 1024 * 1024 ? (f.size / 1024).toFixed(1) + ' KB' : (f.size / (1024 * 1024)).toFixed(2) + ' MB'})</span></li>
+                            <li key={i}>{f.name} <span className="file-ready-size">({formatSize(f.size)})</span></li>
                           ))}
                         </ul>
                         <div className="file-ready-actions">
@@ -518,10 +579,10 @@ export default function App() {
           </div>
           <div className="results-body-doc">
             <div className="doc-preview-container">
-              <div className="doc-pages">
+              <div className="doc-pages" ref={docPagesRef} onMouseUp={file ? handleDocMouseUp : undefined}>
                 {text.split('\n\n\n').map((pageText, pageIdx) => (
                   <div className="doc-page" key={pageIdx}>
-                    <div className="doc-page-content">
+                    <div className="doc-page-content" data-page-start={text.indexOf(pageText)}>
                       {(() => {
                         if (!file) {
                           const parts = []
@@ -605,7 +666,7 @@ export default function App() {
               {zipErrors.map((e, i) => <p key={i}>{e.name}: {e.error}</p>)}
             </div>
           )}
-          <div className="review-file-list">
+          <div className="review-file-list" onMouseUp={handleReviewMouseUp}>
             {reviewFiles.map((rf, idx) => {
               const entityTypesForFile = [...new Set(rf.results.map(r => r.entity_type))].sort()
               return (
@@ -615,7 +676,7 @@ export default function App() {
                     <span className="review-file-count">{rf.results.length} detected</span>
                   </div>
                   <div className="review-file-body">
-                    <div className="review-file-text">
+                    <div className="review-file-text" data-file-idx={idx}>
                       {(() => {
                         if (!rf.results.length) return <span>{rf.text}</span>
                         const sorted = [...rf.results].sort((a, b) => a.start - b.start)
@@ -660,6 +721,16 @@ export default function App() {
             })}
           </div>
         </div>
+      )}
+
+      {manualSelection && (
+        <button
+          className="btn btn-primary manual-mark-btn"
+          style={{ position: 'fixed', left: manualSelection.x, top: manualSelection.y - 40, transform: 'translateX(-50%)' }}
+          onClick={confirmManualSelection}
+        >
+          Mark as PII
+        </button>
       )}
 
       {error && <div className="error-toast">{error}</div>}

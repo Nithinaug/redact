@@ -4,10 +4,9 @@ import io
 import pymupdf
 import openpyxl
 from docx import Document
-from PIL import Image
+from PIL import Image, ImageDraw
 
-from .extract import extension_of
-from .presidio import get_image_redactor
+from .extract import extension_of, extract_image_with_boxes
 
 TYPES = {
     ".txt": "text/plain; charset=utf-8",
@@ -102,13 +101,21 @@ def redact_file(filename, data, text, results):
     return out, TYPES[ext]
 
 
-def redact_image_file(data, entities):
+def redact_image_file(data, result_dicts):
     img = Image.open(io.BytesIO(data))
     fmt = img.format or "PNG"
-    engine = get_image_redactor()
-    redacted = engine.redact(img, fill=(0, 0, 0), entities=entities)
+    if img.mode not in ("RGB", "RGBA"):
+        img = img.convert("RGB")
+    _, boxes = extract_image_with_boxes(data)
+    draw = ImageDraw.Draw(img)
+    for r in result_dicts:
+        for box in boxes:
+            if box["start"] < r["end"] and box["end"] > r["start"]:
+                x0, y0 = box["left"], box["top"]
+                x1, y1 = x0 + box["width"], y0 + box["height"]
+                draw.rectangle([x0, y0, x1, y1], fill=(0, 0, 0))
     buf = io.BytesIO()
-    redacted.save(buf, format=fmt)
+    img.save(buf, format=fmt)
     ext = f".{fmt.lower()}"
     if ext == ".jpeg":
         ext = ".jpg"
@@ -125,21 +132,22 @@ def _redact_csv(data, pairs, remaining):
     return buf.getvalue().encode("utf-8")
 
 
+def _redact_paragraph(p, pairs, remaining):
+    for run in p.runs:
+        new = _apply_replacements(run.text, pairs, remaining)
+        if new != run.text:
+            run.text = new
+
+
 def _redact_docx(data, pairs, remaining):
     doc = Document(io.BytesIO(data))
     for p in doc.paragraphs:
-        for run in p.runs:
-            new = _apply_replacements(run.text, pairs, remaining)
-            if new != run.text:
-                run.text = new
+        _redact_paragraph(p, pairs, remaining)
     for table in doc.tables:
         for row in table.rows:
             for cell in row.cells:
                 for p in cell.paragraphs:
-                    for run in p.runs:
-                        new = _apply_replacements(run.text, pairs, remaining)
-                        if new != run.text:
-                            run.text = new
+                    _redact_paragraph(p, pairs, remaining)
     out = io.BytesIO()
     doc.save(out)
     return out.getvalue()

@@ -75,10 +75,33 @@ def _extract_xlsx(data: bytes) -> str:
 
 
 def _extract_image(data: bytes) -> str:
+    text, _ = extract_image_with_boxes(data)
+    return text
+
+
+def extract_image_with_boxes(data: bytes):
     img = Image.open(io.BytesIO(data))
     gray = img.convert("L")
     bw = gray.point(lambda x: 0 if x < 180 else 255, "1").convert("L")
-    text = pytesseract.image_to_string(bw, config="--psm 6 --oem 1")
-    if not text.strip():
+    ocr = pytesseract.image_to_data(bw, config="--psm 6 --oem 1", output_type=pytesseract.Output.DICT)
+    text = ""
+    boxes = []
+    prev_line_key = None
+    for i in range(len(ocr["text"])):
+        word = ocr["text"][i]
+        if not word.strip():
+            continue
+        line_key = (ocr["block_num"][i], ocr["par_num"][i], ocr["line_num"][i])
+        if prev_line_key is not None:
+            text += "\n" if line_key != prev_line_key else " "
+        start = len(text)
+        text += word
+        boxes.append({
+            "start": start, "end": len(text),
+            "left": ocr["left"][i], "top": ocr["top"][i],
+            "width": ocr["width"][i], "height": ocr["height"][i],
+        })
+        prev_line_key = line_key
+    if not text:
         raise ValueError("no text found in image")
-    return text.strip()
+    return text, boxes

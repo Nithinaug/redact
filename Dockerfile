@@ -14,9 +14,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 COPY api/requirements.txt ./
-RUN --mount=type=cache,target=/root/.cache/pip pip install -r requirements.txt
+RUN --mount=type=cache,target=/root/.cache/pip pip install --extra-index-url https://download.pytorch.org/whl/cpu -r requirements.txt
 RUN python -c "from presidio_analyzer.nlp_engine import TransformersNlpEngine; \
-    e = TransformersNlpEngine(models=[{'lang_code': 'en', 'model_name': {'spacy': 'en_core_web_sm', 'transformers': 'StanfordAIMI/stanford-deidentifier-base'}}]); \
+    e = TransformersNlpEngine(models=[{'lang_code': 'en', 'model_name': {'spacy': 'en_core_web_sm', 'transformers': 'dslim/bert-base-NER'}}]); \
     e.load()"
 
 COPY api/ ./api/

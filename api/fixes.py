@@ -4,6 +4,70 @@ from typing import List
 from presidio_analyzer import Pattern, PatternRecognizer, RecognizerResult
 from presidio_analyzer.predefined_recognizers import SgFinRecognizer, SgUenRecognizer
 
+from .id_validators import (
+    cin_valid,
+    driver_license_valid,
+    fiscal_year_valid,
+    gstin_valid,
+    ifsc_valid,
+    nric_fin_valid,
+    pan_valid,
+    passport_plausible,
+    phone_plausible,
+    verhoeff_valid,
+)
+
+
+class PanRecognizer(PatternRecognizer):
+    def validate_result(self, pattern_text):
+        return pan_valid(pattern_text)
+
+
+class AadhaarRecognizer(PatternRecognizer):
+    def validate_result(self, pattern_text):
+        return verhoeff_valid(pattern_text.replace(" ", ""))
+
+
+class GstinRecognizer(PatternRecognizer):
+    def validate_result(self, pattern_text):
+        return gstin_valid(pattern_text)
+
+
+class IfscRecognizer(PatternRecognizer):
+    def validate_result(self, pattern_text):
+        return ifsc_valid(pattern_text)
+
+
+class CinRecognizer(PatternRecognizer):
+    def validate_result(self, pattern_text):
+        return cin_valid(pattern_text)
+
+
+class DriverLicenseRecognizer(PatternRecognizer):
+    def validate_result(self, pattern_text):
+        return None if driver_license_valid(pattern_text) else False
+
+
+class SgFinChecksumRecognizer(SgFinRecognizer):
+    def validate_result(self, pattern_text):
+        return nric_fin_valid(pattern_text)
+
+
+class PlausiblePhoneRecognizer(PatternRecognizer):
+    def validate_result(self, pattern_text):
+        return None if phone_plausible(pattern_text) else False
+
+
+class PlausiblePassportRecognizer(PatternRecognizer):
+    def validate_result(self, pattern_text):
+        return None if passport_plausible(pattern_text) else False
+
+
+class FiscalYearRecognizer(PatternRecognizer):
+    def validate_result(self, pattern_text):
+        return fiscal_year_valid(pattern_text)
+
+
 _DATE_PATTERN = re.compile(
     r"\b\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}\b"
     r"|\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+\d{1,2},?\s*\d{2,4}\b"
@@ -32,9 +96,6 @@ _BANK_CONTEXT = re.compile(
 
 _PHONE_CONTEXT = re.compile(r"\b(?:phone|mobile|contact|call|tel|hp|fax)\b", re.IGNORECASE)
 
-_AADHAAR_CONTEXT = re.compile(r"\b(?:aadhaar|aadhar|UID|unique identification)\b", re.IGNORECASE)
-_AADHAAR_SHAPE = re.compile(r"^\d{4}\s?\d{4}\s?\d{4}$")
-
 _ORG_WORDS = re.compile(
     r"\b(?:Bank|Chase|Morgan|Goldman|Sachs|Merrill|Lynch|Barclays|Citibank|HSBC|"
     r"UBS|Credit\s+Suisse|Deutsche|JPMorgan|Standard\s+Chartered|"
@@ -54,14 +115,14 @@ _COUNTRY_NAMES = re.compile(
 
 def build_custom_recognizers():
     return [
-        SgFinRecognizer(),
+        SgFinChecksumRecognizer(),
         SgUenRecognizer(),
-        PatternRecognizer(
+        PlausiblePhoneRecognizer(
             supported_entity="PHONE_NUMBER",
-            patterns=[Pattern("sg_phone", r"\b[89]\d{7}\b", 0.5)],
+            patterns=[Pattern("sg_phone", r"\b[89]\d{3}[\-\s]?\d{4}\b", 0.5)],
             context=["phone", "mobile", "contact", "call", "tel", "hp"],
         ),
-        PatternRecognizer(
+        PlausiblePassportRecognizer(
             supported_entity="PASSPORT",
             patterns=[
                 Pattern("passport_an", r"\b[A-Z][0-9]{7,8}\b", 0.4),
@@ -78,9 +139,9 @@ def build_custom_recognizers():
             context=["account number", "bank account", "account no", "account", "acct", "savings",
                      "DBS", "OCBC", "UOB", "POSB", "Citibank", "HSBC", "Standard Chartered"],
         ),
-        PatternRecognizer(
+        DriverLicenseRecognizer(
             supported_entity="DRIVER_LICENSE",
-            patterns=[Pattern("driver_license", r"\b(?=[A-Z0-9]*[0-9])[A-Z0-9]{6,12}\b", 0.3)],
+            patterns=[Pattern("driver_license", r"\b(?=[A-Z0-9]*[0-9])[A-Z0-9]{6,17}\b", 0.3)],
             context=["driver", "driving", "license", "licence", "DL"],
         ),
         PatternRecognizer(
@@ -96,35 +157,52 @@ def build_custom_recognizers():
                 0.85,
             )],
         ),
-        PatternRecognizer(
+        PanRecognizer(
             supported_entity="PAN",
             patterns=[Pattern("pan_in", r"\b[A-Z]{5}[0-9]{4}[A-Z]\b", 0.7)],
             context=["PAN", "permanent account number", "income tax", "IT return", "assessee"],
         ),
-        PatternRecognizer(
+        AadhaarRecognizer(
             supported_entity="AADHAAR",
             patterns=[Pattern("aadhaar_in", r"\b\d{4}\s?\d{4}\s?\d{4}\b", 0.4)],
             context=["aadhaar", "aadhar", "UID", "unique identification"],
         ),
-        PatternRecognizer(
+        GstinRecognizer(
             supported_entity="GSTIN",
             patterns=[Pattern("gstin_in", r"\b\d{2}[A-Z]{5}\d{4}[A-Z]\d[Zz][A-Z\d]\b", 0.8)],
             context=["GSTIN", "GST", "goods and services tax", "GST number", "GST registration"],
         ),
-        PatternRecognizer(
+        IfscRecognizer(
             supported_entity="IFSC_CODE",
             patterns=[Pattern("ifsc_in", r"\b[A-Z]{4}0[A-Z0-9]{6}\b", 0.75)],
             context=["IFSC", "branch code", "bank branch"],
         ),
-        PatternRecognizer(
+        CinRecognizer(
             supported_entity="CIN",
             patterns=[Pattern("cin_in", r"\b[LU][0-9]{5}[A-Z]{2}[0-9]{4}[A-Z]{3}[0-9]{6}\b", 0.8)],
             context=["CIN", "corporate identification number", "company registration"],
         ),
-        PatternRecognizer(
+        PlausiblePhoneRecognizer(
             supported_entity="PHONE_NUMBER",
-            patterns=[Pattern("in_phone", r"\b(?:\+?91[\-\s]?)?[6-9]\d{9}\b", 0.5)],
+            patterns=[Pattern("in_phone", r"\b(?:\+?91[\-\s]?)?[6-9]\d{4}[\-\s]?\d{5}\b", 0.5)],
             context=["phone", "mobile", "contact", "call", "tel"],
+        ),
+        FiscalYearRecognizer(
+            supported_entity="DATE_TIME",
+            patterns=[Pattern(
+                "fiscal_year",
+                r"\b(?:F\.?\s?Y\.?|A\.?\s?Y\.?|Financial\s+Year|Assessment\s+Year)\s?[:\-]?\s?\d{2,4}\s?[-–/]\s?\d{2,4}\b",
+                0.6,
+            )],
+            context=["fiscal", "financial year", "assessment year", "FY", "AY"],
+        ),
+        PatternRecognizer(
+            supported_entity="ID",
+            patterns=[
+                Pattern("id_separated", r"\b[A-Z]{1,5}[\/\-]\d{2,4}[\/\-]\d{2,6}\b", 0.4),
+                Pattern("id_digits", r"\b\d{5,15}\b", 0.3),
+            ],
+            context=["reference", "ref", "id", "number", "no", "membership", "registration", "code"],
         ),
     ]
 
@@ -135,8 +213,6 @@ def reclassify(r, text):
 
     if r.entity_type == "DATE_TIME" and not _DATE_PATTERN.search(matched):
         return None
-    if r.entity_type in ("ID", "PHONE_NUMBER") and _AADHAAR_SHAPE.match(matched.strip()) and _AADHAAR_CONTEXT.search(ctx_before):
-        return RecognizerResult("AADHAAR", r.start, r.end, r.score)
     if r.entity_type == "PHONE_NUMBER" and not re.search(r"[\d\s\-\+\(\)]{7,}", matched):
         return None
     if r.entity_type == "PHONE_NUMBER":

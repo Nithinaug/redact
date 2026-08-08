@@ -14,7 +14,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
-from .presidio import analyze_text, anonymize_text, supported_entities
+from .presidio import analyze_text, supported_entities
 from .extract import extract_text, extension_of, IMAGE_EXTS
 from .redact import redact_file, redact_image_file
 
@@ -73,14 +73,6 @@ async def analyze_file(file: UploadFile = File(...)):
     return {"text": text, "results": _to_dicts(results)}
 
 
-@app.post("/anonymize")
-def anonymize(req: TextRequest):
-    if not req.text.strip():
-        raise HTTPException(400, "text is empty")
-    results = analyze_text(req.text)
-    return {"text": anonymize_text(req.text, results).text, "results": _to_dicts(results)}
-
-
 @app.post("/redact-file")
 async def redact_file_endpoint(request: Request, file: UploadFile = File(...), results: Optional[str] = Form(None)):
     data = await _read_upload(file)
@@ -110,8 +102,7 @@ async def redact_file_endpoint(request: Request, file: UploadFile = File(...), r
 async def _redact_one(filename, data, text, result_dicts):
     ext = extension_of(filename)
     if ext in IMAGE_EXTS:
-        entities = list(set(r["entity_type"] for r in result_dicts))
-        return await run_in_threadpool(redact_image_file, data, entities)
+        return await run_in_threadpool(redact_image_file, data, result_dicts)
     return await run_in_threadpool(redact_file, filename, data, text, result_dicts)
 
 
